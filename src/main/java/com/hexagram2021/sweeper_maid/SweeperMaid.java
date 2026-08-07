@@ -35,6 +35,7 @@ import net.minecraft.world.level.GameRules;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.saveddata.SavedData;
+import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.phys.Vec2;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -52,6 +53,12 @@ import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 
 import javax.annotation.Nullable;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -152,6 +159,10 @@ public class SweeperMaid {
 	 * 下一次清扫是否因掉落物过载而触发喵~
 	 */
 	private boolean lastSweepWasOverload = false;
+	/**
+	 * 上次自动处理垃圾桶的服务器 tick 数喵~
+	 */
+	private long lastDustbinTrashTick = 0;
 
 	/**
 	 * 注册模组命令事件处理喵~
@@ -179,6 +190,7 @@ public class SweeperMaid {
 	@SubscribeEvent
 	public void onTickPre(ServerTickEvent.Pre event) {
 		MinecraftServer server = event.getServer();
+		this.checkDustbinTrash(server);
 		if(SMCommonConfig.ITEM_SWEEP_INTERVAL.get() == 0) {
 			return;
 		}
@@ -187,6 +199,30 @@ public class SweeperMaid {
 		}
 		this.checkOverloadSweep(server);
 		this.prepareAndSendCountdownMessage(server);
+	}
+
+	/**
+	 * 检查并执行垃圾桶自动处理喵~
+	 * <p>
+	 * 间隔配置 {@code DUSTBIN_TRASH_INTERVAL} 为 -1 时禁用；到时按当前配置模式处理喵~
+	 * </p>
+	 *
+	 * @param server 服务器实例喵~
+	 */
+	private void checkDustbinTrash(MinecraftServer server) {
+		if (!SMSavedData.hasInstance()) {
+			return;
+		}
+		int interval = SMCommonConfig.DUSTBIN_TRASH_INTERVAL.get();
+		if (interval < 0) {
+			return;
+		}
+		long tick = server.getTickCount();
+		long intervalTicks = (long) interval * SharedConstants.TICKS_PER_SECOND;
+		if (tick - this.lastDustbinTrashTick >= intervalTicks) {
+			this.lastDustbinTrashTick = tick;
+			trashDustbins(server);
+		}
 	}
 
 	/**
@@ -369,6 +405,108 @@ public class SweeperMaid {
 					serverplayer.sendSystemMessage(message);
 				}
 			}
+		}
+	}
+
+	/**
+	 * 获取打包文件目录喵~
+	 *
+	 * @param server 服务器实例喵~
+	 * @return 存档目录下的 {@code sweeper_maid_packs} 目录喵~
+	 */
+	public static Path getPackDirectory(MinecraftServer server) {
+		return server.getWorldPath(LevelResource.ROOT).resolve("sweeper_maid_packs");
+	}
+
+	/**
+	 * 按当前配置模式立即处理垃圾桶喵~
+	 * <p>
+	 * 供定时自动处理与 {@code /sweepermaid trash} 指令使用；空桶时静默喵~
+	 * </p>
+	 *
+	 * @param server 服务器实例喵~
+	 */
+	public static void trashDustbins(MinecraftServer server) {
+		if (!SMSavedData.hasInstance()) {
+			return;
+		}
+		String mode = SMCommonConfig.DUSTBIN_TRASH_MODE.get();
+		if ("pack".equalsIgnoreCase(mode)) {
+			packDustbinsInternal(server, false);
+		} else {
+			int cleared = SMSavedData.getInstance().clearDustbins();
+			if (cleared > 0) {
+				broadcastToAdmins(server, SMText.of(SMCommonConfig.MESSAGE_DUSTBIN_CLEARED, "sweeper_maid.message.dustbin_trash_cleared", cleared));
+			}
+		}
+	}
+
+	/**
+	 * 立即打包垃圾桶喵~
+	 * <p>
+	 * 供 {@code /sweepermaid pack} 指令使用；空桶时提示管理员喵~
+	 * </p>
+	 *
+	 * @param server 服务器实例喵~
+	 */
+	public static void packDustbinsNow(MinecraftServer server) {
+		if (!SMSavedData.hasInstance()) {
+			return;
+		}
+		packDustbinsInternal(server, true);
+	}
+
+	/**
+	 * 打包垃圾桶到压缩文件并清空喵~
+	 *
+	 * @param server      服务器实例喵~
+	 * @param notifyEmpty 空桶时是否提示管理员喵~
+	 */
+	private static void packDustbinsInternal(MinecraftServer server, boolean notifyEmpty) {
+		try {
+			Path dir = getPackDirectory(server);
+			Files.createDirectories(dir);
+			String name = "pack-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")) + ".nbt.gz";
+			Path file = dir.resolve(name);
+			int packed = SMSavedData.getInstance().packDustbins(server.registryAccess(), file);
+			if (packed > 0) {
+				broadcastToAdmins(server, SMText.of(SMCommonConfig.MESSAGE_DUSTBIN_PACKED, "sweeper_maid.message.dustbin_trash_packed", packed, file.toString()));
+			} else if (notifyEmpty) {
+				broadcastToAdmins(server, Component.translatable("sweeper_maid.message.dustbin_pack_empty").withStyle(ChatFormatting.YELLOW));
+			}
+		} catch (IOException e) {
+			broadcastToAdmins(server, Component.literal("[Sweeper Maid] Failed to pack dustbins: " + e.getMessage()).withStyle(ChatFormatting.RED));
+		}
+	}
+
+	/**
+	 * 导入打包文件并合并进垃圾桶喵~
+	 * <p>
+	 * 成功后文件移入 {@code imported/} 子目录喵~
+	 * </p>
+	 *
+	 * @param server   服务器实例喵~
+	 * @param fileName 打包文件名喵~
+	 * @param player   执行玩家喵~
+	 * @return 是否导入成功喵~
+	 */
+	public static boolean unpackDustbinFile(MinecraftServer server, String fileName, ServerPlayer player) {
+		try {
+			Path dir = getPackDirectory(server);
+			Path file = dir.resolve(fileName).normalize();
+			if (!file.startsWith(dir.normalize()) || !Files.isRegularFile(file)) {
+				player.sendSystemMessage(Component.translatable("sweeper_maid.message.unpack_file_not_found", fileName).withStyle(ChatFormatting.RED));
+				return false;
+			}
+			int imported = SMSavedData.getInstance().importPack(server.registryAccess(), file);
+			Path importedDir = dir.resolve("imported");
+			Files.createDirectories(importedDir);
+			Files.move(file, importedDir.resolve(fileName), StandardCopyOption.REPLACE_EXISTING);
+			player.sendSystemMessage(SMText.of(SMCommonConfig.MESSAGE_DUSTBIN_UNPACKED, "sweeper_maid.message.dustbin_trash_unpacked", fileName, imported));
+			return true;
+		} catch (IOException e) {
+			player.sendSystemMessage(Component.literal("[Sweeper Maid] Failed to import pack: " + e.getMessage()).withStyle(ChatFormatting.RED));
+			return false;
 		}
 	}
 

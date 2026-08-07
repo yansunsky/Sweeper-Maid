@@ -61,3 +61,19 @@ XP_PER_BOTTLE = 10
 #Message appended to the sweep chat message when experience orbs were collected. "$1" stands for the total experience, "$2" stands for the number of converted bottles. Leave empty to use the built-in localized message (follows the client language).
 #清扫收集到经验时追加到聊天消息的提示。"$1" 为收集的经验总值，"$2" 为转换的附魔之瓶数量。留空则使用内置本地化消息。
 MESSAGE_XP_CONVERTED = ""
+#Dustbin auto trash mode. "clear" empties all dustbins, "pack" compresses the dustbin contents into a file under the world save and then empties them. Only used by the scheduled auto trash and the /sweepermaid trash command.
+#垃圾桶自动处理模式。"clear" 清空所有垃圾桶；"pack" 将垃圾桶内容压缩存盘后清空。仅用于定时自动处理与 /sweepermaid trash 指令。
+DUSTBIN_TRASH_MODE = "clear"
+#Interval (in seconds) of the scheduled dustbin auto trash. -1 disables the auto trash.
+#垃圾桶自动处理间隔（秒）。-1 表示禁用自动处理。
+#Range: -1 ~ 86400
+DUSTBIN_TRASH_INTERVAL = -1
+#Message sent to online operators after the dustbins are cleared. "$1" stands for the number of removed items. Leave empty to use the built-in localized message (follows the client language).
+#垃圾桶被清空后发送给在线管理员的提示消息。"$1" 为清除的物品总数。留空则使用内置本地化消息。
+MESSAGE_DUSTBIN_CLEARED = ""
+#Message sent to online operators after the dustbins are packed. "$1" stands for the number of packed items, "$2" stands for the output file path. Leave empty to use the built-in localized message (follows the client language).
+#垃圾桶被打包后发送给在线管理员的提示消息。"$1" 为打包的物品总数，"$2" 为输出文件路径。留空则使用内置本地化消息。
+MESSAGE_DUSTBIN_PACKED = ""
+#Message sent to the player after a pack file is imported. "$1" stands for the file name, "$2" stands for the number of imported items. Leave empty to use the built-in localized message (follows the client language).
+#导入打包文件后发送给玩家的提示消息。"$1" 为文件名，"$2" 为导入的物品总数。留空则使用内置本地化消息。
+MESSAGE_DUSTBIN_UNPACKED = ""

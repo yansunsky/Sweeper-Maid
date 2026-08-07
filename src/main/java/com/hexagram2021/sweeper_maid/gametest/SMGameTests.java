@@ -1,7 +1,6 @@
 package com.hexagram2021.sweeper_maid.gametest;
 
 import com.hexagram2021.sweeper_maid.SweeperMaid;
-import com.hexagram2021.sweeper_maid.SweeperMaid;
 import com.hexagram2021.sweeper_maid.save.SMDustbinContainer;
 import com.hexagram2021.sweeper_maid.save.SMDustbinSlot;
 import com.hexagram2021.sweeper_maid.save.SMSavedData;
@@ -18,7 +17,10 @@ import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 
+import java.io.IOException;
 import java.lang.reflect.Field;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -257,6 +259,69 @@ public final class SMGameTests {
 			}
 			helper.succeed();
 		});
+	}
+
+	/**
+	 * 垃圾桶打包→清空→导入往返测试喵~
+	 * <p>
+	 * 打包后数量不丢失、桶被清空；导入后物品合并回桶，数量一致喵~
+	 * </p>
+	 */
+	@GameTest(template = "empty")
+	public static void testPackImportRoundtrip(GameTestHelper helper) {
+		HolderLookup.Provider provider = helper.getLevel().registryAccess();
+		SMSavedData data = new SMSavedData();
+		data.dustbins.add(new SMDustbinContainer());
+
+		ItemStack diamond = new ItemStack(Items.DIAMOND);
+		diamond.setCount(123456);
+		data.dustbins.get(0).setItem(0, diamond);
+		ItemStack emerald = new ItemStack(Items.EMERALD);
+		emerald.setCount(99);
+		data.dustbins.get(0).setItem(1, emerald);
+
+		Path file;
+		try {
+			file = Files.createTempFile("sweeper_maid_test", ".nbt.gz");
+		} catch (IOException e) {
+			helper.fail("Failed to create temp file: " + e.getMessage());
+			return;
+		}
+
+		try {
+			int packed = data.packDustbins(provider, file);
+			if (packed != 123555) {
+				helper.fail("Packed count mismatch: " + packed + ", expected 123555");
+				return;
+			}
+			if (!data.dustbins.get(0).isEmpty()) {
+				helper.fail("Dustbin should be empty after packing");
+				return;
+			}
+
+			int imported = data.importPack(provider, file);
+			if (imported != 123555) {
+				helper.fail("Imported count mismatch: " + imported + ", expected 123555");
+				return;
+			}
+			if (data.dustbins.get(0).getItem(0).getCount() != 123456 || !data.dustbins.get(0).getItem(0).is(Items.DIAMOND)) {
+				helper.fail("Diamond count after import is wrong: " + data.dustbins.get(0).getItem(0));
+				return;
+			}
+			if (data.dustbins.get(0).getItem(1).getCount() != 99 || !data.dustbins.get(0).getItem(1).is(Items.EMERALD)) {
+				helper.fail("Emerald count after import is wrong: " + data.dustbins.get(0).getItem(1));
+				return;
+			}
+			helper.succeed();
+		} catch (IOException e) {
+			helper.fail("Pack/import failed: " + e.getMessage());
+		} finally {
+			try {
+				Files.deleteIfExists(file);
+			} catch (IOException ignored) {
+				// Ignored
+			}
+		}
 	}
 
 	/**

@@ -6,12 +6,26 @@ import com.hexagram2021.sweeper_maid.inventory.DustbinMenu;
 import com.hexagram2021.sweeper_maid.save.SMSavedData;
 import com.hexagram2021.sweeper_maid.util.SMText;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
+import com.mojang.brigadier.context.CommandContext;
+import com.mojang.brigadier.suggestion.SuggestionProvider;
+import com.mojang.brigadier.suggestion.Suggestions;
+import com.mojang.brigadier.suggestion.SuggestionsBuilder;
+import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.storage.LevelResource;
 
 import javax.annotation.Nullable;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.concurrent.CompletableFuture;
+import java.util.stream.Stream;
 
 /**
  * 扫帚女仆模组命令注册类喵~
@@ -20,6 +34,10 @@ import javax.annotation.Nullable;
  * <ul>
  *     <li>{@code /sweepermaid dustbin [index]} - 打开指定页的垃圾箱界面喵~</li>
  *     <li>{@code /sweepermaid clean} - 立即执行清理操作喵~</li>
+ *     <li>{@code /sweepermaid trash} - 立即按配置模式处理垃圾桶喵~</li>
+ *     <li>{@code /sweepermaid pack} - 立即将垃圾桶打包为压缩文件喵~</li>
+ *     <li>{@code /sweepermaid unpack <file>} - 导入打包文件并合并进垃圾桶喵~</li>
+ *     <li>{@code /sweepermaid help} - 显示帮助喵~</li>
  * </ul>
  * </p>
  *
@@ -27,22 +45,89 @@ import javax.annotation.Nullable;
  */
 public final class SMCommands {
 	/**
+	 * 垃圾桶相关指令的权限等级（2 级 = OP）喵~
+	 */
+	private static final int TRASH_PERMISSION = 2;
+
+	/**
 	 * 注册扫帚女仆命令喵~
 	 *
 	 * @return 命令构建器喵~
 	 */
 	public static LiteralArgumentBuilder<CommandSourceStack> register() {
-		return Commands.literal("sweepermaid").then(
-				Commands.literal("dustbin").requires(stack -> stack.hasPermission(SMCommonConfig.PERMISSION_LEVEL_DUSTBIN.get()))
-						.executes(context -> dustbin(context.getSource().getPlayer(), 0)) // default the first dustbin
-						.then(
-								Commands.argument("index", IntegerArgumentType.integer(0))
-										.executes(context -> dustbin(context.getSource().getPlayer(), IntegerArgumentType.getInteger(context, "index")))
-						)
-		).then(
-				Commands.literal("clean").requires(stack -> stack.hasPermission(SMCommonConfig.PERMISSION_LEVEL_CLEAN.get()))
-						.executes(context -> clean())
-		);
+		return Commands.literal("sweepermaid")
+				.then(
+						Commands.literal("help")
+								.executes(context -> help(context.getSource()))
+				)
+				.then(
+						Commands.literal("dustbin").requires(stack -> stack.hasPermission(SMCommonConfig.PERMISSION_LEVEL_DUSTBIN.get()))
+								.executes(context -> dustbin(context.getSource().getPlayer(), 0)) // default the first dustbin
+								.then(
+										Commands.argument("index", IntegerArgumentType.integer(0))
+												.executes(context -> dustbin(context.getSource().getPlayer(), IntegerArgumentType.getInteger(context, "index")))
+								)
+				)
+				.then(
+						Commands.literal("clean").requires(stack -> stack.hasPermission(SMCommonConfig.PERMISSION_LEVEL_CLEAN.get()))
+								.executes(context -> clean())
+				)
+				.then(
+						Commands.literal("trash").requires(stack -> stack.hasPermission(TRASH_PERMISSION))
+								.executes(context -> trash(context.getSource()))
+				)
+				.then(
+						Commands.literal("pack").requires(stack -> stack.hasPermission(TRASH_PERMISSION))
+								.executes(context -> pack(context.getSource()))
+				)
+				.then(
+						Commands.literal("unpack").requires(stack -> stack.hasPermission(TRASH_PERMISSION))
+								.then(
+										Commands.argument("file", StringArgumentType.greedyString())
+												.suggests(PACK_FILE_SUGGESTIONS)
+												.executes(context -> unpack(context.getSource(), StringArgumentType.getString(context, "file")))
+								)
+				);
+	}
+
+	/**
+	 * 打包文件名的 Tab 补全建议喵~
+	 */
+	private static final SuggestionProvider<CommandSourceStack> PACK_FILE_SUGGESTIONS = (context, builder) -> suggestPackFiles(context, builder);
+
+	/**
+	 * 列出打包目录下的压缩文件供 Tab 补全喵~
+	 *
+	 * @param context 命令上下文喵~
+	 * @param builder 建议构建器喵~
+	 * @return 建议结果喵~
+	 */
+	private static CompletableFuture<Suggestions> suggestPackFiles(CommandContext<CommandSourceStack> context, SuggestionsBuilder builder) {
+		Path dir = SweeperMaid.getPackDirectory(context.getSource().getServer());
+		if (Files.isDirectory(dir)) {
+			try (Stream<Path> files = Files.list(dir)) {
+				files.filter(path -> path.getFileName().toString().endsWith(".nbt.gz"))
+						.forEach(path -> builder.suggest(path.getFileName().toString()));
+			} catch (IOException ignored) {
+				// Ignored
+			}
+		}
+		return builder.buildFuture();
+	}
+
+	/**
+	 * 显示帮助喵~
+	 *
+	 * @param source 命令源喵~
+	 * @return 命令执行结果码喵~
+	 */
+	private static int help(CommandSourceStack source) {
+		MutableComponent message = Component.translatable("sweeper_maid.help.title").withStyle(ChatFormatting.GOLD);
+		for (String key : new String[]{"dustbin", "clean", "trash", "pack", "unpack", "help"}) {
+			message.append(Component.literal("\n").append(Component.translatable("sweeper_maid.help." + key).withStyle(ChatFormatting.GRAY)));
+		}
+		source.sendSuccess(() -> message, false);
+		return 1;
 	}
 
 	/**
@@ -79,6 +164,43 @@ public final class SMCommands {
 	private static int clean() {
 		SweeperMaid.clean.run();
 		return 1;
+	}
+
+	/**
+	 * 立即按当前配置模式处理垃圾桶喵~
+	 *
+	 * @param source 命令源喵~
+	 * @return 命令执行结果码喵~
+	 */
+	private static int trash(CommandSourceStack source) {
+		SweeperMaid.trashDustbins(source.getServer());
+		return 1;
+	}
+
+	/**
+	 * 立即打包垃圾桶喵~
+	 *
+	 * @param source 命令源喵~
+	 * @return 命令执行结果码喵~
+	 */
+	private static int pack(CommandSourceStack source) {
+		SweeperMaid.packDustbinsNow(source.getServer());
+		return 1;
+	}
+
+	/**
+	 * 导入打包文件并合并进垃圾桶喵~
+	 *
+	 * @param source   命令源喵~
+	 * @param fileName 打包文件名喵~
+	 * @return 命令执行结果码喵~
+	 */
+	private static int unpack(CommandSourceStack source, String fileName) {
+		if (source.getPlayer() instanceof ServerPlayer player) {
+			return SweeperMaid.unpackDustbinFile(source.getServer(), fileName, player) ? 1 : 0;
+		}
+		source.sendFailure(Component.translatable("sweeper_maid.message.unpack_console_only"));
+		return 0;
 	}
 
 	/**

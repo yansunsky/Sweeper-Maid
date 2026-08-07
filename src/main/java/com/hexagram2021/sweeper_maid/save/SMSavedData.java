@@ -6,11 +6,16 @@ import net.minecraft.core.HolderLookup;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtAccounter;
+import net.minecraft.nbt.NbtIo;
+import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
 import net.minecraft.world.level.saveddata.SavedData;
 import net.minecraft.world.item.ItemStack;
 
 import javax.annotation.Nullable;
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -289,5 +294,92 @@ public final class SMSavedData extends SavedData {
 				}
 			}
 		};
+	}
+
+	/**
+	 * 清空所有垃圾箱喵~
+	 *
+	 * @return 清除的物品总数喵~
+	 */
+	public int clearDustbins() {
+		synchronized (this.dustbins) {
+			int cleared = 0;
+			for (SMDustbinContainer dustbin : this.dustbins) {
+				for (int i = 0; i < dustbin.getContainerSize(); ++i) {
+					ItemStack stack = dustbin.getItem(i);
+					if (!stack.isEmpty()) {
+						cleared += stack.getCount();
+					}
+				}
+				dustbin.clearContent();
+			}
+			this.setDirty();
+			return cleared;
+		}
+	}
+
+	/**
+	 * 将所有垃圾箱内容打包到指定文件（gzip NBT），随后清空垃圾箱喵~
+	 * <p>
+	 * 文件格式为 {@code {Items:[{stack, count}, ...]}}，与垃圾箱槽位格式一致喵~
+	 * </p>
+	 *
+	 * @param provider 注册表提供者喵~
+	 * @param file     输出文件喵~
+	 * @return 打包的物品总数；垃圾箱为空时返回 0 且不写文件喵~
+	 * @throws IOException 文件写入失败喵~
+	 */
+	public int packDustbins(HolderLookup.Provider provider, Path file) throws IOException {
+		synchronized (this.dustbins) {
+			ListTag all = new ListTag();
+			for (SMDustbinContainer dustbin : this.dustbins) {
+				ListTag pageTag = dustbin.createTag(provider);
+				for (Tag tag : pageTag) {
+					all.add(tag);
+				}
+			}
+			if (all.isEmpty()) {
+				return 0;
+			}
+			CompoundTag root = new CompoundTag();
+			root.put("Items", all);
+			NbtIo.writeCompressed(root, file);
+			for (SMDustbinContainer dustbin : this.dustbins) {
+				dustbin.clearContent();
+			}
+			this.setDirty();
+			int total = 0;
+			for (Tag tag : all) {
+				total += ((CompoundTag) tag).getInt("count");
+			}
+			return total;
+		}
+	}
+
+	/**
+	 * 从打包文件导入物品并合并进垃圾箱喵~
+	 *
+	 * @param provider 注册表提供者喵~
+	 * @param file     打包文件喵~
+	 * @return 导入的物品总数喵~
+	 * @throws IOException 文件读取失败喵~
+	 */
+	public int importPack(HolderLookup.Provider provider, Path file) throws IOException {
+		CompoundTag root = NbtIo.readCompressed(file, NbtAccounter.unlimitedHeap());
+		ListTag all = root.getList("Items", Tag.TAG_COMPOUND);
+		int total = 0;
+		for (Tag tag : all) {
+			CompoundTag slot = (CompoundTag) tag;
+			ItemStack stack = ItemStack.SINGLE_ITEM_CODEC
+					.parse(provider.createSerializationContext(NbtOps.INSTANCE), slot.get("stack"))
+					.result().orElse(ItemStack.EMPTY);
+			if (!stack.isEmpty()) {
+				stack.setCount(slot.getInt("count"));
+				this.addItemToDustbin(stack);
+				total += stack.getCount();
+			}
+		}
+		this.sortDustbins();
+		return total;
 	}
 }
