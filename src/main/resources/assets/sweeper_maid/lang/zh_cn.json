@@ -1,0 +1,12 @@
+{
+    "sweeper_maid.message.before_sweep_15_30_60": "[扫帚女仆]：还有 %s 秒就要开始清扫了！",
+    "sweeper_maid.message.before_sweep_1_10": "[扫帚女仆]：还有 %s 秒就要开始清扫了！",
+    "sweeper_maid.message.after_sweep": "[扫帚女仆]：本次清扫清理了 %s 个掉落物品、%s 个多余实体和 %s 个黑名单物品。",
+    "sweeper_maid.message.chat_after_sweep": "[扫帚女仆]：有什么东西丢了吗？去垃圾箱里看看吧：",
+    "sweeper_maid.message.overload": "[扫帚女仆]：区块 (%s, %s) 的掉落物过多，总计 %s 个物品 (%s)！",
+    "sweeper_maid.message.wrong_dustbin": "[扫帚女仆]：没有这个垃圾箱哦！",
+    "sweeper_maid.message.overload_sweep": "[扫帚女仆]：才扫一会儿就又有 %s 堆垃圾啦？没办法只好继续扫了~",
+    "sweeper_maid.dustbin.name": "垃圾箱 %s",
+    "sweeper_maid.dustbin.previous_page": "上一页",
+    "sweeper_maid.dustbin.next_page": "下一页"
+}

@@ -2,18 +2,14 @@ package com.hexagram2021.sweeper_maid.command;
 
 import com.hexagram2021.sweeper_maid.SweeperMaid;
 import com.hexagram2021.sweeper_maid.config.SMCommonConfig;
+import com.hexagram2021.sweeper_maid.inventory.DustbinMenu;
 import com.hexagram2021.sweeper_maid.save.SMSavedData;
+import com.hexagram2021.sweeper_maid.util.SMText;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
-import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.MenuProvider;
-import net.minecraft.world.entity.player.Inventory;
-import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.inventory.AbstractContainerMenu;
-import net.minecraft.world.inventory.ChestMenu;
 
 import javax.annotation.Nullable;
 
@@ -22,7 +18,7 @@ import javax.annotation.Nullable;
  * <p>
  * 提供以下命令：
  * <ul>
- *     <li>{@code /sweepermaid dustbin [index]} - 打开指定索引的垃圾箱界面喵~</li>
+ *     <li>{@code /sweepermaid dustbin [index]} - 打开指定页的垃圾箱界面喵~</li>
  *     <li>{@code /sweepermaid clean} - 立即执行清理操作喵~</li>
  * </ul>
  * </p>
@@ -52,11 +48,11 @@ public final class SMCommands {
 	/**
 	 * 打开垃圾箱界面喵~
 	 * <p>
-	 * 根据索引打开对应的垃圾箱容器界面，如果索引无效则发送错误消息喵~
+	 * 根据页索引打开对应的垃圾箱容器界面，如果索引无效则发送错误消息喵~
 	 * </p>
 	 *
 	 * @param player 玩家实例喵~
-	 * @param index 垃圾箱索引喵~
+	 * @param index  页索引喵~
 	 * @return 命令执行结果码喵~
 	 */
 	private static int dustbin(@Nullable ServerPlayer player, int index) {
@@ -64,23 +60,13 @@ public final class SMCommands {
 			return 0;
 		}
 
-        if (index >= 0 && index < SMCommonConfig.DUSTBIN_COUNT.get()) {
-            player.openMenu(new MenuProvider() {
-                @Override
-                public Component getDisplayName() {
-                    return Component.literal(SMCommonConfig.DUSTBIN_NAME.get() + index);
-                }
-
-                @Override
-                public AbstractContainerMenu createMenu(int id, Inventory inventory, Player player1) {
-                    return ChestMenu.sixRows(id, inventory, SMSavedData.getDustbinContainer(index));
-                }
-            });
-            return 1;
-        }
-		player.sendSystemMessage(Component.literal(SMCommonConfig.MESSAGE_WRONG_DUSTBIN.get()));
+		if (index >= 0 && index < SMSavedData.getPageCount()) {
+			DustbinMenu.open(player, index);
+			return 1;
+		}
+		player.sendSystemMessage(SMText.of(SMCommonConfig.MESSAGE_WRONG_DUSTBIN, "sweeper_maid.message.wrong_dustbin"));
 		return 0;
-    }
+	}
 
 	/**
 	 * 立即执行清理操作喵~

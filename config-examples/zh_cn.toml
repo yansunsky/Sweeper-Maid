@@ -1,30 +1,56 @@
 
 [sweeper_maid-common-config]
 #If 0, disable item sweeping. If > 0, cool down (in seconds) between two item sweeping.
+#若为 0 则禁用自动清扫；若大于 0，则为两次清扫之间的冷却时间（秒）。
 #Range: 0 ~ 360000
 ITEM_SWEEP_INTERVAL = 600
 #Permission level of a player to open the dustbin.
+#打开垃圾箱所需的权限等级。
 #Range: 0 ~ 4
 PERMISSION_LEVEL_DUSTBIN = 0
 #Items in this list will be cleaned but not added to the dustbin.
+#此列表中的物品会被清扫，但不会存入垃圾箱。
 ITEM_BLACKLIST = ["minecraft:cobblestone", "minecraft:sand"]
 #Item overload in a chunk. If exceeded, a warning message will be sent.
+#区块内的掉落物数量超过此值时，将发送一条警告消息。
 #Range: 1 ~ 6400000
 ITEM_OVERLOAD_THRESHOLD = 640
 #Other entities of types will be killed when cleaning, e.g. arrows. You can also kill mobs or even players by setting this.
+#清扫时额外清除的实体类型，例如箭矢。也可以借此清除生物甚至玩家。
 EXTRA_ENTITY_TYPES = ["minecraft:arrow", "minecraft:spectral_arrow", "oceanworld:drip_ice"]
-#What message will be sent to players when there's 15s, 30s and 60s left to sweep. "$1" stands for the remaining time (in seconds).
-MESSAGE_BEFORE_SWEEP_15_30_60 = "[扫地女仆]：我将在 $1 秒后打扫地板！"
-#What message will be sent to players when there's 1s~10s left to sweep. "$1" stands for the remaining time (in seconds).
-MESSAGE_BEFORE_SWEEP_1_10 = "[扫地女仆]：我将在 $1 秒后打扫地板！"
-#What message will be sent to players after a sweep. "$1" stands for the number of killed dropped items, and "$2" stands for the number of killed entities.
-MESSAGE_AFTER_SWEEP = "[扫地女仆]：清扫过程中清理了 $1 个掉落物品和 $2 个不必要的实体。"
-#What chat message will be sent to players after a sweep. Command will be appended to the end of the chat message.
-CHAT_MESSAGE_AFTER_SWEEP = "[扫地女仆]：有遗漏的东西吗？让我们检查一下垃圾箱： "
-#What message will be sent to players when open a wrong dustbin.
-MESSAGE_WRONG_DUSTBIN = "[扫地女仆]：没有这个垃圾箱哦!"
-#Dustbin.
-DUSTBIN_NAME = "垃圾箱 "
-#Message to be sent when item overload threshold is exceeded. "$1" stands for chunk X position, "$2" stands for chunk Z position, and "$3" stands for item count.
-OVERLOAD_MESSAGE = "[扫地女仆]: 位于此区域 ($1, $2) 的物品过多, 整整有 $3 个!"
-
+#What message will be sent to players when there's 15s, 30s and 60s left to sweep. "$1" stands for the remaining time (in seconds). Leave empty to use the built-in localized message (follows the client language).
+#距离清扫还有 15 秒、30 秒、60 秒时发送给玩家的提示消息。"$1" 为剩余时间（秒）。留空则使用内置本地化消息。
+MESSAGE_BEFORE_SWEEP_15_30_60 = ""
+#What message will be sent to players when there's 1s~10s left to sweep. "$1" stands for the remaining time (in seconds). Leave empty to use the built-in localized message (follows the client language).
+#距离清扫还有 1~10 秒时发送给玩家的提示消息。"$1" 为剩余时间（秒）。留空则使用内置本地化消息。
+MESSAGE_BEFORE_SWEEP_1_10 = ""
+#What message will be sent to players after a sweep. "$1" stands for the number of killed dropped items, "$2" stands for the number of killed entities, and "$3" stands for the number of blacklist items. Leave empty to use the built-in localized message (follows the client language).
+#清扫完成后发送给玩家的消息。"$1" 为清除的掉落物品数，"$2" 为清除的实体数，"$3" 为黑名单物品数。留空则使用内置本地化消息。
+MESSAGE_AFTER_SWEEP = ""
+#What chat message will be sent to players after a sweep. Command will be appended to the end of the chat message. Leave empty to use the built-in localized message (follows the client language).
+#清扫完成后发送给玩家的聊天消息，末尾会附加垃圾箱链接。留空则使用内置本地化消息。
+CHAT_MESSAGE_AFTER_SWEEP = ""
+#What message will be sent to players when open a wrong dustbin. Leave empty to use the built-in localized message (follows the client language).
+#打开无效垃圾箱时发送给玩家的消息。留空则使用内置本地化消息。
+MESSAGE_WRONG_DUSTBIN = ""
+#Name of dustbins. Leave empty to use the built-in localized name (follows the client language).
+#垃圾箱名称前缀。留空则使用内置本地化名称（跟随游戏语言）。
+DUSTBIN_NAME = ""
+#Max item count that can be stacked in a single dustbin slot. Bigger values reduce the chance that the dustbin gets full.
+#单个垃圾箱槽位最多可堆叠的物品数量。更大的值可降低垃圾箱被装满的概率。
+#Range: 1 ~ 2147483647
+DUSTBIN_SLOT_CAPACITY = 1000000
+#Message to be sent when item overload threshold is exceeded. "$1" stands for chunk X position, "$2" stands for chunk Z position, "$3" stands for item count, and "$4" stands for item id. Leave empty to use the built-in localized message (follows the client language).
+#区块掉落物过载时发送的消息。"$1" 为区块 X 坐标，"$2" 为区块 Z 坐标，"$3" 为物品数量，"$4" 为物品 ID。留空则使用内置本地化消息（跟随游戏语言）。
+OVERLOAD_MESSAGE = ""
+#Global number of dropped item entities (piles) in all dimensions. If exceeded, an extra sweeping will be triggered before the scheduled interval (subject to the cooldown below). Set a huge value to disable.
+#所有维度中掉落物实体（堆）的总数阈值。超过此值将触发一次额外清扫（受下方冷却限制）。设为极大值可禁用。
+#Range: 1 ~ 2147483647
+GLOBAL_ITEM_COUNT_THRESHOLD = 500
+#Cooldown (in seconds) between two overload-triggered sweepings.
+#两次过载触发清扫之间的冷却时间（秒）。
+#Range: 0 ~ 86400
+OVERLOAD_SWEEP_COOLDOWN = 60
+#Message to be sent to all players after an overload-triggered sweeping. "$1" stands for the number of swept item piles. Leave empty to use the built-in localized message (follows the client language).
+#过载触发清扫后发送给所有玩家的提示消息。"$1" 为本次清扫的掉落物堆数。留空则使用内置本地化消息。
+MESSAGE_OVERLOAD_SWEEP = ""

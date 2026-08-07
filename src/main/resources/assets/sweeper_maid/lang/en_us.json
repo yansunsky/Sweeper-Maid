@@ -1,0 +1,12 @@
+{
+    "sweeper_maid.message.before_sweep_15_30_60": "[Sweeper Maid]: I'll sweep the floor in %s seconds!",
+    "sweeper_maid.message.before_sweep_1_10": "[Sweeper Maid]: I'll sweep the floor in %s seconds!",
+    "sweeper_maid.message.after_sweep": "[Sweeper Maid]: %s dropped items, %s unnecessary entities and %s blacklist items are cleaned during this sweeping.",
+    "sweeper_maid.message.chat_after_sweep": "[Sweeper Maid]: Anything's missing? Let's check out the dustbin:",
+    "sweeper_maid.message.overload": "[Sweeper Maid]: The number of dropped items in the region (%s, %s) is too large, with a total of %s items! (%s)",
+    "sweeper_maid.message.wrong_dustbin": "[Sweeper Maid]: Wrong dustbin.",
+    "sweeper_maid.message.overload_sweep": "[Sweeper Maid]: Too many dropped item piles again (%s piles)? Fine, I'll sweep again!",
+    "sweeper_maid.dustbin.name": "Dustbin %s",
+    "sweeper_maid.dustbin.previous_page": "Previous page",
+    "sweeper_maid.dustbin.next_page": "Next page"
+}

@@ -14,7 +14,7 @@ import java.util.List;
  *     <li>物品白名单和黑名单喵~</li>
  *     <li>额外实体类型喵~</li>
  *     <li>消息模板和提示语喵~</li>
- *     <li>垃圾箱数量和权限等级喵~</li>
+ *     <li>垃圾箱每格容量和权限等级喵~</li>
  *     <li>物品过载阈值和警告消息喵~</li>
  * </ul>
  * </p>
@@ -79,9 +79,9 @@ public final class SMCommonConfig {
 	 */
 	public static final ModConfigSpec.ConfigValue<String> DUSTBIN_NAME;
 	/**
-	 * 垃圾箱数量喵~
+	 * 单个垃圾箱槽位的最大堆叠数量喵~
 	 */
-	public static final ModConfigSpec.IntValue DUSTBIN_COUNT;
+	public static final ModConfigSpec.IntValue DUSTBIN_SLOT_CAPACITY;
 	/**
 	 * 清理完成后的聊天消息模板喵~
 	 */
@@ -94,48 +94,67 @@ public final class SMCommonConfig {
 	 * 立即清理所需的权限等级喵~
 	 */
 	public static final ModConfigSpec.IntValue PERMISSION_LEVEL_CLEAN;
+	/**
+	 * 全局掉落物实体（堆）数量阈值，超过则提前额外清扫一次喵~
+	 */
+	public static final ModConfigSpec.IntValue GLOBAL_ITEM_COUNT_THRESHOLD;
+	/**
+	 * 额外清扫的冷却时间（秒）喵~
+	 */
+	public static final ModConfigSpec.IntValue OVERLOAD_SWEEP_COOLDOWN;
+	/**
+	 * 额外清扫完成后的提示消息模板喵~
+	 */
+	public static final ModConfigSpec.ConfigValue<String> MESSAGE_OVERLOAD_SWEEP;
 
 	static {
 		BUILDER.push("sweeper_maid-common-config");
-		ITEM_SWEEP_INTERVAL = BUILDER.comment("If 0, disable item sweeping. If > 0, cool down (in seconds) between two item sweeping.")
+		ITEM_SWEEP_INTERVAL = BUILDER.comment("If 0, disable item sweeping. If > 0, cool down (in seconds) between two item sweeping.\n若为 0 则禁用自动清扫；若大于 0，则为两次清扫之间的冷却时间（秒）。")
 				.defineInRange("ITEM_SWEEP_INTERVAL", 600, 0, 360000);
 
-		ITEM_OVERLOAD_THRESHOLD = BUILDER.comment("Item overload in a chunk. If exceeded, a warning message will be sent.")
+		ITEM_OVERLOAD_THRESHOLD = BUILDER.comment("Item overload in a chunk. If exceeded, a warning message will be sent.\n区块内的掉落物数量超过此值时，将发送一条警告消息。")
 				.defineInRange("ITEM_OVERLOAD_THRESHOLD", 640, 1, 6400000);
 
-		OVERLOAD_MESSAGE = BUILDER.comment("Message to be sent when item overload threshold is exceeded. \"$1\" stands for chunk X position, \"$2\" stands for chunk Z position, and \"$3\" stands for item count.")
-				.define("OVERLOAD_MESSAGE", "[Sweeper Maid]: The number of dropped items in the region ($1, $2) is too large, with a total of $3 items!");
+		OVERLOAD_MESSAGE = BUILDER.comment("Message to be sent when item overload threshold is exceeded. \"$1\" stands for chunk X position, \"$2\" stands for chunk Z position, \"$3\" stands for item count, and \"$4\" stands for item id. Leave empty to use the built-in localized message (follows the client language).\n区块掉落物过载时发送的消息。\"$1\" 为区块 X 坐标，\"$2\" 为区块 Z 坐标，\"$3\" 为物品数量，\"$4\" 为物品 ID。留空则使用内置本地化消息（跟随游戏语言）。")
+				.define("OVERLOAD_MESSAGE", "");
 
-		EXTRA_ENTITY_TYPES = BUILDER.comment("Other entities of types will be killed when cleaning, e.g. arrows. You can also kill mobs or even players by setting this.")
+		EXTRA_ENTITY_TYPES = BUILDER.comment("Other entities of types will be killed when cleaning, e.g. arrows. You can also kill mobs or even players by setting this.\n清扫时额外清除的实体类型，例如箭矢。也可以借此清除生物甚至玩家。")
 				.defineListAllowEmpty("EXTRA_ENTITY_TYPES", List.of(
 						ResourceLocation.withDefaultNamespace("arrow").toString(),
 						ResourceLocation.withDefaultNamespace("spectral_arrow").toString(),
 						ResourceLocation.fromNamespaceAndPath("oceanworld", "drip_ice").toString()
 				), () -> "minecraft:zombie", o -> o instanceof String str && str.matches(REGISTRY_NAME_MATCHER));
-		ITEM_WHITELIST = BUILDER.comment("Items in this list will never be cleaned and will be kept as item entity until it disappear.")
+		ITEM_WHITELIST = BUILDER.comment("Items in this list will never be cleaned and will be kept as item entity until it disappear.\n此列表中的物品永远不会被清扫，会以掉落物形式保留直到自然消失。")
 				.defineListAllowEmpty("ITEM_WHITELIST", List.of(
 						ResourceLocation.withDefaultNamespace("nether_star").toString(),
 						ResourceLocation.withDefaultNamespace("heavy_core").toString()
 				), () -> "minecraft:dirt", o -> o instanceof String str && str.matches(REGISTRY_NAME_MATCHER));
-		ITEM_BLACKLIST = BUILDER.comment("Items in this list will be cleaned but not added to the dustbin.")
+		ITEM_BLACKLIST = BUILDER.comment("Items in this list will be cleaned but not added to the dustbin.\n此列表中的物品会被清扫，但不会存入垃圾箱。")
 				.defineListAllowEmpty("ITEM_BLACKLIST", List.of(
 						ResourceLocation.withDefaultNamespace("cobblestone").toString(),
 						ResourceLocation.withDefaultNamespace("sand").toString()
 				), () -> "minecraft:dirt", o -> o instanceof String str && str.matches(REGISTRY_NAME_MATCHER));
-		MESSAGE_BEFORE_SWEEP_15_30_60 = BUILDER.comment("What message will be sent to players when there's 15s, 30s and 60s left to sweep. \"$1\" stands for the remaining time (in seconds).")
-				.define("MESSAGE_BEFORE_SWEEP_15_30_60", "[Sweeper Maid]: I'll sweep the floor in $1 seconds!");
-		MESSAGE_BEFORE_SWEEP_1_10 = BUILDER.comment("What message will be sent to players when there's 1s~10s left to sweep. \"$1\" stands for the remaining time (in seconds).")
-				.define("MESSAGE_BEFORE_SWEEP_1_10", "[Sweeper Maid]: I'll sweep the floor in $1 seconds!");
-		MESSAGE_AFTER_SWEEP = BUILDER.comment("What message will be sent to players after a sweep. \"$1\" stands for the number of killed dropped items, and \"$2\" stands for the number of killed entities.")
-				.define("MESSAGE_AFTER_SWEEP", "[Sweeper Maid]: $1 dropped items, $2 unnecessary entities and $3 blacklist items are cleaned during this sweeping.");
-		MESSAGE_WRONG_DUSTBIN = BUILDER.comment("What message will be sent to players when open a wrong dustbin.")
-				.define("MESSAGE_WRONG_DUSTBIN", "[Sweeper Maid]: Wrong dustbin.");
-		DUSTBIN_NAME = BUILDER.comment("Name of dustbins.").define("DUSTBIN_NAME", "Dustbin ");
-		DUSTBIN_COUNT = BUILDER.comment("Count of dustbins").defineInRange("DUSTBIN_COUNT", 8, 1, 64);
-		CHAT_MESSAGE_AFTER_SWEEP = BUILDER.comment("What chat message will be sent to players after a sweep. Command will be appended to the end of the chat message.")
-				.define("CHAT_MESSAGE_AFTER_SWEEP", "[Sweeper Maid]: Anything's missing? Let's checkout the dustbin:");
-		PERMISSION_LEVEL_DUSTBIN = BUILDER.comment("Permission level of a player to open the dustbin.").defineInRange("PERMISSION_LEVEL_DUSTBIN", 0, 0, 4);
-		PERMISSION_LEVEL_CLEAN = BUILDER.comment("Permission level of a player to clean immediately.").defineInRange("PERMISSION_LEVEL_CLEAN", 2, 0, 4);
+		MESSAGE_BEFORE_SWEEP_15_30_60 = BUILDER.comment("What message will be sent to players when there's 15s, 30s and 60s left to sweep. \"$1\" stands for the remaining time (in seconds). Leave empty to use the built-in localized message (follows the client language).\n距离清扫还有 15 秒、30 秒、60 秒时发送给玩家的提示消息。\"$1\" 为剩余时间（秒）。留空则使用内置本地化消息。")
+				.define("MESSAGE_BEFORE_SWEEP_15_30_60", "");
+		MESSAGE_BEFORE_SWEEP_1_10 = BUILDER.comment("What message will be sent to players when there's 1s~10s left to sweep. \"$1\" stands for the remaining time (in seconds). Leave empty to use the built-in localized message (follows the client language).\n距离清扫还有 1~10 秒时发送给玩家的提示消息。\"$1\" 为剩余时间（秒）。留空则使用内置本地化消息。")
+				.define("MESSAGE_BEFORE_SWEEP_1_10", "");
+		MESSAGE_AFTER_SWEEP = BUILDER.comment("What message will be sent to players after a sweep. \"$1\" stands for the number of killed dropped items, \"$2\" stands for the number of killed entities, and \"$3\" stands for the number of blacklist items. Leave empty to use the built-in localized message (follows the client language).\n清扫完成后发送给玩家的消息。\"$1\" 为清除的掉落物品数，\"$2\" 为清除的实体数，\"$3\" 为黑名单物品数。留空则使用内置本地化消息。")
+				.define("MESSAGE_AFTER_SWEEP", "");
+		MESSAGE_WRONG_DUSTBIN = BUILDER.comment("What message will be sent to players when open a wrong dustbin. Leave empty to use the built-in localized message (follows the client language).\n打开无效垃圾箱时发送给玩家的消息。留空则使用内置本地化消息。")
+				.define("MESSAGE_WRONG_DUSTBIN", "");
+		DUSTBIN_NAME = BUILDER.comment("Name of dustbins. Leave empty to use the built-in localized name (follows the client language).\n垃圾箱名称前缀。留空则使用内置本地化名称（跟随游戏语言）。").define("DUSTBIN_NAME", "");
+		DUSTBIN_SLOT_CAPACITY = BUILDER.comment("Max item count that can be stacked in a single dustbin slot. Bigger values reduce the chance that the dustbin gets full.\n单个垃圾箱槽位最多可堆叠的物品数量。更大的值可降低垃圾箱被装满的概率。")
+				.defineInRange("DUSTBIN_SLOT_CAPACITY", 1000000, 1, Integer.MAX_VALUE);
+		CHAT_MESSAGE_AFTER_SWEEP = BUILDER.comment("What chat message will be sent to players after a sweep. Command will be appended to the end of the chat message. Leave empty to use the built-in localized message (follows the client language).\n清扫完成后发送给玩家的聊天消息，末尾会附加垃圾箱链接。留空则使用内置本地化消息。")
+				.define("CHAT_MESSAGE_AFTER_SWEEP", "");
+		PERMISSION_LEVEL_DUSTBIN = BUILDER.comment("Permission level of a player to open the dustbin.\n打开垃圾箱所需的权限等级。").defineInRange("PERMISSION_LEVEL_DUSTBIN", 0, 0, 4);
+		PERMISSION_LEVEL_CLEAN = BUILDER.comment("Permission level of a player to clean immediately.\n立即执行清扫所需的权限等级。").defineInRange("PERMISSION_LEVEL_CLEAN", 2, 0, 4);
+		GLOBAL_ITEM_COUNT_THRESHOLD = BUILDER.comment("Global number of dropped item entities (piles) in all dimensions. If exceeded, an extra sweeping will be triggered before the scheduled interval (subject to the cooldown below). Set a huge value to disable.\n所有维度中掉落物实体（堆）的总数阈值。超过此值将触发一次额外清扫（受下方冷却限制）。设为极大值可禁用。")
+				.defineInRange("GLOBAL_ITEM_COUNT_THRESHOLD", 500, 1, Integer.MAX_VALUE);
+		OVERLOAD_SWEEP_COOLDOWN = BUILDER.comment("Cooldown (in seconds) between two overload-triggered sweepings.\n两次过载触发清扫之间的冷却时间（秒）。")
+				.defineInRange("OVERLOAD_SWEEP_COOLDOWN", 60, 0, 86400);
+		MESSAGE_OVERLOAD_SWEEP = BUILDER.comment("Message to be sent to all players after an overload-triggered sweeping. \"$1\" stands for the number of swept item piles. Leave empty to use the built-in localized message (follows the client language).\n过载触发清扫后发送给所有玩家的提示消息。\"$1\" 为本次清扫的掉落物堆数。留空则使用内置本地化消息。")
+				.define("MESSAGE_OVERLOAD_SWEEP", "");
 		BUILDER.pop();
 		SPEC = BUILDER.build();
 	}
