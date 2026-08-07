@@ -1,7 +1,7 @@
 modLoader="javafml"
 loaderVersion="[47,)"
 license="AGPL v3"
-issueTrackerURL="https://github.com/Viola-Siemens/Sweeper-Maid/issues"
+issueTrackerURL="https://github.com/yansunsky/Sweeper-Maid/issues"
 
 [[mods]]
 modId="sweeper_maid"
@@ -9,9 +9,10 @@ version="${file.jarVersion}"
 displayName="Sweeper Maid"
 logoFile="logo.png"
 credits="Liu Dongyu"
-authors="Hexagram"
+authors="Hexagram, Yansunsky"
 description='''
-A lightweight mod that collects all dropped items.
+Yansunsky fork of Sweeper Maid (1.20.1 Forge).
+A lightweight mod that collects dropped items, with paged dustbin GUI, large stacking, global sorting, overload auto-sweeping and experience orb collection.
 '''
 
 [[dependencies.sweeper_maid]]
