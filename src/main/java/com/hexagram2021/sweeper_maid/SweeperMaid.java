@@ -26,9 +26,11 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.ExperienceOrb;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.GameRules;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.LevelChunk;
@@ -44,6 +46,7 @@ import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
 import net.neoforged.neoforge.event.entity.EntityLeaveLevelEvent;
+import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
@@ -302,6 +305,40 @@ public class SweeperMaid {
 	}
 
 	/**
+	 * 玩家登录事件处理：发送分支欢迎提示喵~
+	 * <p>
+	 * 玩家进入服务器后提醒这是 Yansunsky 分支版本，问题反馈请勿联系原作者喵~
+	 * </p>
+	 *
+	 * @param event 玩家登录事件喵~
+	 */
+	@SubscribeEvent
+	public void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
+		if (event.getEntity() instanceof ServerPlayer player) {
+			player.sendSystemMessage(createForkWelcomeMessage());
+		}
+	}
+
+	/**
+	 * 构建分支欢迎提示消息喵~
+	 * <p>
+	 * 关键词（分支名、QQ、邮箱）使用金色高亮，其余文字灰色喵~
+	 * </p>
+	 *
+	 * @return 欢迎消息组件喵~
+	 */
+	private static MutableComponent createForkWelcomeMessage() {
+		ChatFormatting normal = ChatFormatting.GRAY;
+		ChatFormatting highlight = ChatFormatting.GOLD;
+		return Component.literal("欢迎使用").withStyle(normal)
+				.append(Component.literal("Yansunsky分支").withStyle(highlight))
+				.append(Component.literal("的清扫女仆，本版本所有问题请不要反馈到原作者那边，你可以反馈到QQ").withStyle(normal))
+				.append(Component.literal("1321833118").withStyle(highlight))
+				.append(Component.literal("，最好的发邮件到").withStyle(normal))
+				.append(Component.literal("Yansunsky@outlook.com").withStyle(highlight));
+	}
+
+	/**
 	 * 创建命令源堆栈喵~
 	 * <p>
 	 * 用于在发送消息时模拟命令执行上下文喵~
@@ -394,6 +431,7 @@ public class SweeperMaid {
 		AtomicInteger extraEntities = new AtomicInteger();
 		AtomicInteger blacklistedItems = new AtomicInteger();
 		AtomicInteger sweptItemPiles = new AtomicInteger();
+		AtomicInteger collectedXp = new AtomicInteger();
 		Map<LevelChunk, Map<String, Integer>> chunkItemCounts = Maps.newIdentityHashMap();
 
 		server.getAllLevels().forEach(serverLevel -> {
@@ -401,11 +439,21 @@ public class SweeperMaid {
 			List<Entity> killedEntities = Lists.newArrayList();
 
 			for (Entity entity : entities) {
-				checkAndCollectEntity(server, serverLevel, entity, killedEntities, blacklistedItems, instance, droppedItems, chunkItemCounts, extraEntities, sweptItemPiles);
+				checkAndCollectEntity(server, serverLevel, entity, killedEntities, blacklistedItems, instance, droppedItems, chunkItemCounts, extraEntities, sweptItemPiles, collectedXp);
 			}
 
 			killedEntities.forEach(Entity::discard);
 		});
+
+		// 将收集到的经验折算为附魔之瓶存入垃圾箱（向上取整）
+		int xp = collectedXp.get();
+		int bottles = 0;
+		if (xp > 0) {
+			int xpPerBottle = SMCommonConfig.XP_PER_BOTTLE.get();
+			bottles = (xp + xpPerBottle - 1) / xpPerBottle;
+			ItemStack bottleStack = new ItemStack(Items.EXPERIENCE_BOTTLE, bottles);
+			instance.addItemToDustbin(bottleStack);
+		}
 
 		server.getPlayerList().getPlayers().forEach(player -> {
 			try {
@@ -422,8 +470,16 @@ public class SweeperMaid {
 
 
 		// Generate all dustbin messages and links
+		int xpConverted = xp;
+		int bottleCount = bottles;
 		server.getPlayerList().getPlayers().forEach(player -> {
 			MutableComponent message = SMText.of(SMCommonConfig.CHAT_MESSAGE_AFTER_SWEEP, "sweeper_maid.message.chat_after_sweep");
+
+			if (xpConverted > 0) {
+				message.append(Component.literal(" "))
+						.append(SMText.of(SMCommonConfig.MESSAGE_XP_CONVERTED, "sweeper_maid.message.xp_converted", xpConverted, bottleCount)
+								.withStyle(ChatFormatting.YELLOW));
+			}
 
 			instance.accessDustbins(dustbins -> {
 				if(dustbins.isEmpty()) {
@@ -476,7 +532,7 @@ public class SweeperMaid {
 		}
 	}
 
-	private static void checkAndCollectEntity(MinecraftServer server, ServerLevel serverLevel, @Nullable Entity entity, List<Entity> killedEntities, AtomicInteger blacklistedItems, SMSavedData instance, AtomicInteger droppedItems, Map<LevelChunk, Map<String, Integer>> chunkItemCounts, AtomicInteger extraEntities, AtomicInteger sweptItemPiles) {
+	private static void checkAndCollectEntity(MinecraftServer server, ServerLevel serverLevel, @Nullable Entity entity, List<Entity> killedEntities, AtomicInteger blacklistedItems, SMSavedData instance, AtomicInteger droppedItems, Map<LevelChunk, Map<String, Integer>> chunkItemCounts, AtomicInteger extraEntities, AtomicInteger sweptItemPiles, AtomicInteger collectedXp) {
 		if (entity instanceof ItemEntity itemEntity) {
 			ItemStack itemStack = itemEntity.getItem();
 			ResourceLocation itemKey = server.registryAccess().registryOrThrow(Registries.ITEM).getKey(itemStack.getItem());
@@ -502,6 +558,13 @@ public class SweeperMaid {
 						itemCounts.put(item, itemCounts.getOrDefault(item, 0) + itemStack.getCount());
 					}
 				}
+			}
+		} else if (entity instanceof ExperienceOrb experienceOrb) {
+			// 经验球全部收集（不受物品白/黑名单影响），计入过载堆数
+			if (!killedEntities.contains(entity)) {
+				collectedXp.addAndGet(experienceOrb.getValue());
+				sweptItemPiles.incrementAndGet();
+				killedEntities.add(experienceOrb);
 			}
 		} else if(entity != null) {
 			ResourceLocation typeKey = server.registryAccess().registryOrThrow(Registries.ENTITY_TYPE).getKey(entity.getType());

@@ -106,6 +106,14 @@ public final class SMCommonConfig {
 	 * 额外清扫完成后的提示消息模板喵~
 	 */
 	public static final ModConfigSpec.ConfigValue<String> MESSAGE_OVERLOAD_SWEEP;
+	/**
+	 * 多少点经验折算为 1 个附魔之瓶喵~
+	 */
+	public static final ModConfigSpec.IntValue XP_PER_BOTTLE;
+	/**
+	 * 经验转换提示消息模板喵~
+	 */
+	public static final ModConfigSpec.ConfigValue<String> MESSAGE_XP_CONVERTED;
 
 	static {
 		BUILDER.push("sweeper_maid-common-config");
@@ -155,6 +163,10 @@ public final class SMCommonConfig {
 				.defineInRange("OVERLOAD_SWEEP_COOLDOWN", 60, 0, 86400);
 		MESSAGE_OVERLOAD_SWEEP = BUILDER.comment("Message to be sent to all players after an overload-triggered sweeping. \"$1\" stands for the number of swept item piles. Leave empty to use the built-in localized message (follows the client language).\n过载触发清扫后发送给所有玩家的提示消息。\"$1\" 为本次清扫的掉落物堆数。留空则使用内置本地化消息。")
 				.define("MESSAGE_OVERLOAD_SWEEP", "");
+		XP_PER_BOTTLE = BUILDER.comment("Experience points needed to convert into 1 experience bottle (rounded up). A bottle gives 3~11 xp, so a loss is expected to avoid xp duplication.\n每多少点经验折算为 1 个附魔之瓶（向上取整）。附魔之瓶开启后只给 3~11 点经验，适度折损可避免刷经验。")
+				.defineInRange("XP_PER_BOTTLE", 10, 1, Integer.MAX_VALUE);
+		MESSAGE_XP_CONVERTED = BUILDER.comment("Message appended to the sweep chat message when experience orbs were collected. \"$1\" stands for the total experience, \"$2\" stands for the number of converted bottles. Leave empty to use the built-in localized message (follows the client language).\n清扫收集到经验时追加到聊天消息的提示。\"$1\" 为收集的经验总值，\"$2\" 为转换的附魔之瓶数量。留空则使用内置本地化消息。")
+				.define("MESSAGE_XP_CONVERTED", "");
 		BUILDER.pop();
 		SPEC = BUILDER.build();
 	}
