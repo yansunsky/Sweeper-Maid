@@ -2,11 +2,14 @@ package com.hexagram2021.sweeper_maid.client;
 
 import com.hexagram2021.sweeper_maid.inventory.DustbinMenu;
 import com.hexagram2021.sweeper_maid.network.SMPageChangePayload;
+import com.hexagram2021.sweeper_maid.save.SMDustbinSlot;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.inventory.Slot;
+import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 /**
@@ -62,6 +65,71 @@ public class SMDustbinScreen extends AbstractContainerScreen<DustbinMenu> {
 	@Override
 	protected void renderBg(GuiGraphics graphics, float partialTick, int mouseX, int mouseY) {
 		graphics.blit(BACKGROUND, this.leftPos, this.topPos, 0, 0, this.imageWidth, this.imageHeight, 256, 256);
+	}
+
+	/**
+	 * 渲染垃圾箱槽位喵~
+	 * <p>
+	 * 仅对垃圾箱槽位（大堆叠）做数量缩写：数量 ≥ 1000 时显示为 {@code 1.2K}、{@code 4.6M}、
+	 * {@code 1.5B} 之类，避免超长数字把槽位撑满喵~；玩家物品栏等其它槽位保持原版渲染喵~<br>
+	 * 原版「按住拖拽分配物品」时槽位上的半透明高亮也会保留喵~
+	 * </p>
+	 */
+	@Override
+	protected void renderSlot(GuiGraphics graphics, Slot slot) {
+		if (!(slot instanceof SMDustbinSlot)) {
+			super.renderSlot(graphics, slot);
+			return;
+		}
+
+		int x = slot.x;
+		int y = slot.y;
+		ItemStack stack = slot.getItem();
+		boolean dragging = !this.menu.getCarried().isEmpty() && this.quickCraftSlots.contains(slot);
+
+		graphics.pose().pushPose();
+		graphics.pose().translate(0.0F, 0.0F, 100.0F);
+		if (dragging) {
+			graphics.fill(x, y, x + 16, y + 16, -2130706433);
+		}
+		if (!stack.isEmpty()) {
+			graphics.renderItem(stack, x, y, x + y * this.imageWidth);
+			graphics.renderItemDecorations(this.font, stack, x, y, stack.getCount() == 1 ? null : abbreviateCount(stack.getCount()));
+		}
+		graphics.pose().popPose();
+	}
+
+	/**
+	 * 将物品数量缩写为可读的短文本喵~
+	 * <p>
+	 * 小于 1000 原样返回；达到千 / 百万 / 十亿后保留一位小数，末尾的 {@code .0} 省略
+	 * （如 {@code 1200 → 1.2K}、{@code 4600000 → 4.6M}、{@code 1000000 → 1M}）喵~
+	 * </p>
+	 *
+	 * @param count 物品数量喵~
+	 * @return 显示用的数量文本喵~
+	 */
+	private static String abbreviateCount(int count) {
+		if (count < 1000) {
+			return String.valueOf(count);
+		}
+		long divisor;
+		String suffix;
+		if (count >= 1_000_000_000) {
+			divisor = 1_000_000_000L;
+			suffix = "B";
+		} else if (count >= 1_000_000) {
+			divisor = 1_000_000L;
+			suffix = "M";
+		} else {
+			divisor = 1_000L;
+			suffix = "K";
+		}
+		long tenths = Math.round(count * 10.0 / divisor);
+		if (tenths % 10 == 0) {
+			return (tenths / 10) + suffix;
+		}
+		return (tenths / 10) + "." + (tenths % 10) + suffix;
 	}
 
 	/**
