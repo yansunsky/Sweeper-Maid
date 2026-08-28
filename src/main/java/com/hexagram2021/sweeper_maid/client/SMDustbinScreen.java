@@ -3,6 +3,10 @@ package com.hexagram2021.sweeper_maid.client;
 import com.hexagram2021.sweeper_maid.inventory.DustbinMenu;
 import com.hexagram2021.sweeper_maid.network.SMPageChangePayload;
 import com.hexagram2021.sweeper_maid.save.SMDustbinSlot;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.network.chat.Component;
@@ -26,6 +30,19 @@ public class SMDustbinScreen extends AbstractContainerScreen<DustbinMenu> {
 
 	private static final int BUTTON_WIDTH = 16;
 	private static final int BUTTON_HEIGHT = 12;
+
+	/**
+	 * 数量文本在槽位内允许的最大像素宽度喵~
+	 * <p>
+	 * 槽位宽 16px、间隔 18px，数量文本如果比这个宽就会向左压到相邻槽位的物品上喵~
+	 * </p>
+	 */
+	private static final int COUNT_MAX_WIDTH = 15;
+	/**
+	 * 数量文本缩放下限喵~（避免缩得太小看不清）
+	 */
+	private static final float COUNT_MIN_SCALE = 0.35F;
+
 	/**
 	 * 上一页按钮相对界面左上角的 X 坐标喵~
 	 */
@@ -71,8 +88,8 @@ public class SMDustbinScreen extends AbstractContainerScreen<DustbinMenu> {
 	 * 渲染垃圾箱槽位喵~
 	 * <p>
 	 * 仅对垃圾箱槽位（大堆叠）做数量缩写：数量 ≥ 1000 时显示为 {@code 1.2K}、{@code 4.6M}、
-	 * {@code 1.5B} 之类，避免超长数字把槽位撑满喵~；玩家物品栏等其它槽位保持原版渲染喵~<br>
-	 * 原版「按住拖拽分配物品」时槽位上的半透明高亮也会保留喵~
+	 * {@code 1.5B} 之类；数量文本超出槽位宽度时自动缩小字号，保证不会压到相邻槽位的物品喵~<br>
+	 * 玩家物品栏等其它槽位保持原版渲染喵~；原版「按住拖拽分配物品」时槽位上的半透明高亮也会保留喵~
 	 * </p>
 	 */
 	@Override
@@ -94,9 +111,60 @@ public class SMDustbinScreen extends AbstractContainerScreen<DustbinMenu> {
 		}
 		if (!stack.isEmpty()) {
 			graphics.renderItem(stack, x, y, x + y * this.imageWidth);
-			graphics.renderItemDecorations(this.font, stack, x, y, stack.getCount() == 1 ? null : abbreviateCount(stack.getCount()));
+			if (stack.getCount() > 1) {
+				renderCount(graphics, abbreviateCount(stack.getCount()), x, y);
+			}
 		}
 		graphics.pose().popPose();
+	}
+
+	/**
+	 * 在槽位右下角绘制自适应大小的数量文本喵~
+	 * <p>
+	 * 右对齐且右缘与原版一致；文字宽度超过 {@link #COUNT_MAX_WIDTH} 时缩放字体，
+	 * 使其永远不会越出槽位左侧边界、压到相邻格子喵~
+	 * </p>
+	 *
+	 * @param graphics 绘制工具喵~
+	 * @param text     数量文本喵~
+	 * @param x        槽位 X 坐标喵~
+	 * @param y        槽位 Y 坐标喵~
+	 */
+	private void renderCount(GuiGraphics graphics, String text, int x, int y) {
+		int width = this.font.width(text);
+		float scale = Math.min(1.0F, Math.max(COUNT_MIN_SCALE, (float) COUNT_MAX_WIDTH / width));
+		int scaledWidth = (int) Math.ceil(width * scale);
+
+		graphics.pose().pushPose();
+		// 原版 renderItemDecorations 在画数量前会把 z 平移 +200（图标在 z≈150），
+		// 这里保持一致，否则文字会被图标盖住。
+		graphics.pose().translate(x + 17 - scaledWidth, y + 9, 200.0F);
+		graphics.pose().scale(scale, scale, 1.0F);
+		graphics.drawString(this.font, text, 0, 0, 0xFFFFFF, true);
+		graphics.pose().popPose();
+	}
+
+	/**
+	 * 渲染物品悬浮信息喵~
+	 * <p>
+	 * 1.21.1 中 {@link AbstractContainerScreen} 的基类不会自动绘制容器物品 tooltip，
+	 * 必须由具体界面在 {@code render} 末尾手动调用（原版 {@code ContainerScreen} 即如此）喵~<br>
+	 * 这里在补上自动 tooltip 的同时，为大堆叠物品追加一行「确切数量」，与格子上缩写互补充喵~
+	 * </p>
+	 */
+	@Override
+	protected void renderTooltip(GuiGraphics graphics, int mouseX, int mouseY) {
+		if (this.menu.getCarried().isEmpty() && this.hoveredSlot instanceof SMDustbinSlot && this.hoveredSlot.hasItem()) {
+			ItemStack stack = this.hoveredSlot.getItem();
+			List<Component> tooltip = new ArrayList<>(this.getTooltipFromContainerItem(stack));
+			if (stack.getCount() >= 1000) {
+				tooltip.add(Component.translatable("sweeper_maid.dustbin.item_count",
+						String.format(Locale.ROOT, "%,d", stack.getCount())).withStyle(ChatFormatting.GRAY));
+			}
+			graphics.renderTooltip(this.font, tooltip, stack.getTooltipImage(), mouseX, mouseY);
+			return;
+		}
+		super.renderTooltip(graphics, mouseX, mouseY);
 	}
 
 	/**
@@ -169,6 +237,9 @@ public class SMDustbinScreen extends AbstractContainerScreen<DustbinMenu> {
 		int textColor = 0xFFE0E0E0;
 		String pageText = (currentPage + 1) + "/" + pageCount;
 		graphics.drawString(this.font, pageText, this.leftPos + 22, this.topPos + 7, textColor);
+
+		// 1.21.1 容器界面必须在 render 末尾手动绘制物品 tooltip（原版 ContainerScreen 同样如此）
+		this.renderTooltip(graphics, mouseX, mouseY);
 	}
 
 	/**

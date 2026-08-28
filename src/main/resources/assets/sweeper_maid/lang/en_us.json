@@ -22,5 +22,6 @@
     "sweeper_maid.help.help": "/sweepermaid help - Show this help.",
     "sweeper_maid.dustbin.name": "Dustbin %s",
     "sweeper_maid.dustbin.previous_page": "Previous page",
-    "sweeper_maid.dustbin.next_page": "Next page"
+    "sweeper_maid.dustbin.next_page": "Next page",
+    "sweeper_maid.dustbin.item_count": "Amount: %s"
 }

@@ -22,5 +22,6 @@
     "sweeper_maid.help.help": "/sweepermaid help - 显示本帮助。",
     "sweeper_maid.dustbin.name": "垃圾箱 %s",
     "sweeper_maid.dustbin.previous_page": "上一页",
-    "sweeper_maid.dustbin.next_page": "下一页"
+    "sweeper_maid.dustbin.next_page": "下一页",
+    "sweeper_maid.dustbin.item_count": "数量：%s"
 }
