@@ -34,6 +34,7 @@ import java.util.stream.Stream;
  * <ul>
  *     <li>{@code /sweepermaid dustbin [index]} - 打开指定页的垃圾箱界面喵~</li>
  *     <li>{@code /sweepermaid clean} - 立即执行清理操作喵~</li>
+ *     <li>{@code /sweepermaid welcome on|off} - 开关登录时的分支声明喵~</li>
  *     <li>{@code /sweepermaid trash} - 立即按配置模式处理垃圾桶喵~</li>
  *     <li>{@code /sweepermaid pack} - 立即将垃圾桶打包为压缩文件喵~</li>
  *     <li>{@code /sweepermaid unpack <file>} - 导入打包文件并合并进垃圾桶喵~</li>
@@ -45,9 +46,9 @@ import java.util.stream.Stream;
  */
 public final class SMCommands {
 	/**
-	 * 垃圾桶相关指令的权限等级（2 级 = OP）喵~
+	 * 管理类指令的权限等级（2 级 = OP）喵~
 	 */
-	private static final int TRASH_PERMISSION = 2;
+	private static final int OP_PERMISSION = 2;
 
 	/**
 	 * 注册扫帚女仆命令喵~
@@ -73,15 +74,20 @@ public final class SMCommands {
 								.executes(context -> clean())
 				)
 				.then(
-						Commands.literal("trash").requires(stack -> stack.hasPermission(TRASH_PERMISSION))
+						Commands.literal("welcome").requires(stack -> stack.hasPermission(OP_PERMISSION))
+								.then(Commands.literal("on").executes(context -> setForkWelcome(context.getSource(), true)))
+								.then(Commands.literal("off").executes(context -> setForkWelcome(context.getSource(), false)))
+				)
+				.then(
+						Commands.literal("trash").requires(stack -> stack.hasPermission(OP_PERMISSION))
 								.executes(context -> trash(context.getSource()))
 				)
 				.then(
-						Commands.literal("pack").requires(stack -> stack.hasPermission(TRASH_PERMISSION))
+						Commands.literal("pack").requires(stack -> stack.hasPermission(OP_PERMISSION))
 								.executes(context -> pack(context.getSource()))
 				)
 				.then(
-						Commands.literal("unpack").requires(stack -> stack.hasPermission(TRASH_PERMISSION))
+						Commands.literal("unpack").requires(stack -> stack.hasPermission(OP_PERMISSION))
 								.then(
 										Commands.argument("file", StringArgumentType.greedyString())
 												.suggests(PACK_FILE_SUGGESTIONS)
@@ -123,7 +129,7 @@ public final class SMCommands {
 	 */
 	private static int help(CommandSourceStack source) {
 		MutableComponent message = Component.translatable("sweeper_maid.help.title").withStyle(ChatFormatting.GOLD);
-		for (String key : new String[]{"dustbin", "clean", "trash", "pack", "unpack", "help"}) {
+		for (String key : new String[]{"dustbin", "clean", "welcome", "trash", "pack", "unpack", "help"}) {
 			message.append(Component.literal("\n").append(Component.translatable("sweeper_maid.help." + key).withStyle(ChatFormatting.GRAY)));
 		}
 		source.sendSuccess(() -> message, false);
@@ -163,6 +169,22 @@ public final class SMCommands {
 	 */
 	private static int clean() {
 		SweeperMaid.clean.run();
+		return 1;
+	}
+
+	/**
+	 * 开关玩家登录时的分支声明喵~
+	 *
+	 * @param source  命令源喵~
+	 * @param enabled 是否发送声明喵~
+	 * @return 命令执行结果码喵~
+	 */
+	private static int setForkWelcome(CommandSourceStack source, boolean enabled) {
+		SMCommonConfig.SHOW_FORK_WELCOME.set(enabled);
+		SMCommonConfig.SHOW_FORK_WELCOME.save();
+		source.sendSuccess(() -> Component.translatable(
+				enabled ? "sweeper_maid.message.fork_welcome_enabled" : "sweeper_maid.message.fork_welcome_disabled"
+		).withStyle(ChatFormatting.GREEN), false);
 		return 1;
 	}
 

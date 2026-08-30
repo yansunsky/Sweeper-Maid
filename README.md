@@ -17,7 +17,7 @@
 7. **垃圾桶自动清理**：两种模式——**清空**（直接清掉所有桶）与**打包**（把桶内容压缩存盘后清空，可用指令导回），支持定时自动处理与指令手动触发。
 8. **本地化**：内置 `en_us` 与 `zh_cn` 语言文件，消息类配置留空即跟随游戏语言。
 9. **聊天快捷开箱**：清扫后聊天消息中的 `[垃圾箱 N]` 点击**直接打开**对应页垃圾箱（无需手动补全命令；`/sweepermaid dustbin <页>` 命令仍可用）。
-10. **分支欢迎提示**：玩家登录时提示这是 Yansunsky 分支版本，问题反馈请勿联系原作者。
+10. **分支欢迎提示**：默认在玩家登录时提示这是 Yansunsky 分支版本，问题反馈请勿联系原作者；可用 `/sweepermaid welcome on|off`（OP）或配置项 `SHOW_FORK_WELCOME` 开关。
 11. **大数量缩写显示**：垃圾箱槽位物品数量 ≥ 1000 时以 `1.2K`、`4.6M`、`1.5B` 形式显示；数量文本超出槽位宽度时自动缩小字号，确保不压到相邻槽位；鼠标悬停物品会显示信息，大堆叠物品额外显示确切数量（取走仍按精确数量计算）。
 12. **配置双语注释**：所有配置项注释中英双语。
 13. **游戏测试**：内置 GameTest 覆盖大容量序列化、翻页合并、排序、取走限制、打包导入等核心逻辑（`gradlew runGameTestServer`）。
@@ -29,6 +29,7 @@
 | `/sweepermaid help` | 显示所有指令说明 | 无 |
 | `/sweepermaid dustbin [index]` | 打开指定页垃圾箱（默认第 0 页） | `PERMISSION_LEVEL_DUSTBIN`（默认 0） |
 | `/sweepermaid clean` | 立即执行一次清扫 | `PERMISSION_LEVEL_CLEAN`（默认 2） |
+| `/sweepermaid welcome on|off` | 开关玩家登录时的分支声明 | OP（2 级） |
 | `/sweepermaid trash` | 立即按配置模式处理垃圾桶（清空或打包） | OP（2 级） |
 | `/sweepermaid pack` | 立即将垃圾桶内容打包为压缩文件 | OP（2 级） |
 | `/sweepermaid unpack <文件>` | 导入打包文件并合并进垃圾桶（Tab 补全文件名） | OP（2 级） |
@@ -46,6 +47,7 @@
 | `DUSTBIN_SLOT_CAPACITY` | 1000000 | 垃圾箱单格堆叠上限 |
 | `DUSTBIN_TRASH_MODE` | clear | 垃圾桶自动处理模式：`clear` 清空 / `pack` 打包 |
 | `DUSTBIN_TRASH_INTERVAL` | -1 | 垃圾桶自动处理间隔（秒），-1 禁用 |
+| `SHOW_FORK_WELCOME` | true | 是否在玩家登录时发送分支声明，可用 `welcome on/off` 动态修改 |
 | `XP_PER_BOTTLE` | 10 | 每多少点经验折算 1 个附魔之瓶 |
 | `DUSTBIN_NAME` | 空 | 垃圾箱名称前缀（空=跟随语言） |
 | `EXTRA_ENTITY_TYPES` / `ITEM_WHITELIST` / `ITEM_BLACKLIST` | — | 额外清除实体 / 白名单 / 黑名单 |

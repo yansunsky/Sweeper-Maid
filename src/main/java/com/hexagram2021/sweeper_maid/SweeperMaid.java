@@ -343,14 +343,14 @@ public class SweeperMaid {
 	/**
 	 * 玩家登录事件处理：发送分支欢迎提示喵~
 	 * <p>
-	 * 玩家进入服务器后提醒这是 Yansunsky 分支版本，问题反馈请勿联系原作者喵~
+	 * 玩家进入服务器后提醒这是 Yansunsky 分支版本，问题反馈请勿联系原作者；可通过配置或 OP 指令关闭喵~
 	 * </p>
 	 *
 	 * @param event 玩家登录事件喵~
 	 */
 	@SubscribeEvent
 	public void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
-		if (event.getEntity() instanceof ServerPlayer player) {
+		if (event.getEntity() instanceof ServerPlayer player && SMCommonConfig.SHOW_FORK_WELCOME.get()) {
 			player.sendSystemMessage(createForkWelcomeMessage());
 		}
 	}
@@ -358,7 +358,7 @@ public class SweeperMaid {
 	/**
 	 * 构建分支欢迎提示消息喵~
 	 * <p>
-	 * 关键词（分支名、QQ、邮箱）使用金色高亮，其余文字灰色喵~
+	 * 关键词（分支名、QQ、邮箱、关闭指令、配置项）使用金色高亮，其余文字灰色喵~
 	 * </p>
 	 *
 	 * @return 欢迎消息组件喵~
@@ -366,12 +366,14 @@ public class SweeperMaid {
 	private static MutableComponent createForkWelcomeMessage() {
 		ChatFormatting normal = ChatFormatting.GRAY;
 		ChatFormatting highlight = ChatFormatting.GOLD;
-		return Component.literal("欢迎使用").withStyle(normal)
-				.append(Component.literal("Yansunsky分支").withStyle(highlight))
-				.append(Component.literal("的清扫女仆，本版本所有问题请不要反馈到原作者那边，你可以反馈到QQ").withStyle(normal))
-				.append(Component.literal("1321833118").withStyle(highlight))
-				.append(Component.literal("，最好的发邮件到").withStyle(normal))
-				.append(Component.literal("Yansunsky@outlook.com").withStyle(highlight));
+		return Component.translatable(
+				"sweeper_maid.message.fork_welcome",
+				Component.literal("Yansunsky").withStyle(highlight),
+				Component.literal("1321833118").withStyle(highlight),
+				Component.literal("Yansunsky@outlook.com").withStyle(highlight),
+				Component.literal("/sweepermaid welcome off").withStyle(highlight),
+				Component.literal("SHOW_FORK_WELCOME").withStyle(highlight))
+				.withStyle(normal);
 	}
 
 	/**

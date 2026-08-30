@@ -17,7 +17,7 @@ A Minecraft mod that cleans up dropped items and unnecessary entities on your se
 7. **Dustbin auto trash**: Two modes — **clear** (empty all dustbins) and **pack** (compress the contents to a file, then empty them; importable later). Supports scheduled auto-processing and manual commands.
 8. **Localization**: Built-in `en_us` / `zh_cn` language files; message configs follow the client language when left empty.
 9. **Chat quick-open**: Clicking `[Dustbin N]` in the sweep message opens that page directly (the `/sweepermaid dustbin <page>` command still works).
-10. **Fork welcome message**: Players are notified on login that this is the Yansunsky fork; please do not report issues to the original author.
+10. **Fork welcome message**: Players are notified on login by default that this is the Yansunsky fork; please do not report issues to the original author. Toggle it with `/sweepermaid welcome on|off` (OP) or the `SHOW_FORK_WELCOME` config option.
 11. **Bilingual config comments**: All config options have both English and Chinese comments.
 12. **Game tests**: Built-in GameTests cover large-stack serialization, merge, sorting, take limits, pack/import roundtrips, etc. (`gradlew runGameTestServer`).
 
@@ -28,6 +28,7 @@ A Minecraft mod that cleans up dropped items and unnecessary entities on your se
 | `/sweepermaid help` | Show all command descriptions | none |
 | `/sweepermaid dustbin [index]` | Open the dustbin page (default page 0) | `PERMISSION_LEVEL_DUSTBIN` (default 0) |
 | `/sweepermaid clean` | Run a sweep immediately | `PERMISSION_LEVEL_CLEAN` (default 2) |
+| `/sweepermaid welcome on|off` | Toggle the fork welcome message | OP (level 2) |
 | `/sweepermaid trash` | Process the dustbins now (clear or pack, follows the config mode) | OP (level 2) |
 | `/sweepermaid pack` | Pack the dustbin contents into a compressed file now | OP (level 2) |
 | `/sweepermaid unpack <file>` | Import a pack file and merge into the dustbins (Tab-complete file names) | OP (level 2) |
@@ -45,6 +46,7 @@ Pack files are stored under `sweeper_maid_packs/` in the world save directory (`
 | `DUSTBIN_SLOT_CAPACITY` | 1000000 | Max stack per dustbin slot |
 | `DUSTBIN_TRASH_MODE` | clear | Dustbin auto-trash mode: `clear` / `pack` |
 | `DUSTBIN_TRASH_INTERVAL` | -1 | Dustbin auto-trash interval (seconds); -1 disables |
+| `SHOW_FORK_WELCOME` | true | Whether to send the fork welcome message on login; toggle with `welcome on/off` |
 | `XP_PER_BOTTLE` | 10 | Experience points per bottle |
 | `DUSTBIN_NAME` | empty | Dustbin name prefix (empty = localized) |
 | `EXTRA_ENTITY_TYPES` / `ITEM_WHITELIST` / `ITEM_BLACKLIST` | — | Extra entities / whitelist / blacklist |

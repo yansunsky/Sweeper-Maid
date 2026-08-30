@@ -115,6 +115,10 @@ public final class SMCommonConfig {
 	 */
 	public static final ModConfigSpec.ConfigValue<String> MESSAGE_XP_CONVERTED;
 	/**
+	 * 玩家登录时是否发送 Yansunsky 分支声明喵~
+	 */
+	public static final ModConfigSpec.BooleanValue SHOW_FORK_WELCOME;
+	/**
 	 * 垃圾桶自动处理模式（clear=清空 / pack=打包）喵~
 	 */
 	public static final ModConfigSpec.ConfigValue<String> DUSTBIN_TRASH_MODE;
@@ -187,6 +191,8 @@ public final class SMCommonConfig {
 				.defineInRange("XP_PER_BOTTLE", 10, 1, Integer.MAX_VALUE);
 		MESSAGE_XP_CONVERTED = BUILDER.comment("Message appended to the sweep chat message when experience orbs were collected. \"$1\" stands for the total experience, \"$2\" stands for the number of converted bottles. Leave empty to use the built-in localized message (follows the client language).\n清扫收集到经验时追加到聊天消息的提示。\"$1\" 为收集的经验总值，\"$2\" 为转换的附魔之瓶数量。留空则使用内置本地化消息。")
 				.define("MESSAGE_XP_CONVERTED", "");
+		SHOW_FORK_WELCOME = BUILDER.comment("Whether to send the Yansunsky fork welcome message when a player joins. It can also be toggled with /sweepermaid welcome on|off.\n玩家登录时是否发送 Yansunsky 分支声明。也可使用 /sweepermaid welcome on|off 开关。")
+				.define("SHOW_FORK_WELCOME", true);
 		DUSTBIN_TRASH_MODE = BUILDER.comment("Dustbin auto trash mode. \"clear\" empties all dustbins, \"pack\" compresses the dustbin contents into a file under the world save and then empties them. Only used by the scheduled auto trash and the /sweepermaid trash command.\n垃圾桶自动处理模式。\"clear\" 清空所有垃圾桶；\"pack\" 将垃圾桶内容压缩存盘后清空。仅用于定时自动处理与 /sweepermaid trash 指令。")
 				.define("DUSTBIN_TRASH_MODE", "clear");
 		DUSTBIN_TRASH_INTERVAL = BUILDER.comment("Interval (in seconds) of the scheduled dustbin auto trash. -1 disables the auto trash.\n垃圾桶自动处理间隔（秒）。-1 表示禁用自动处理。")
