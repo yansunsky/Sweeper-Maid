@@ -28,6 +28,11 @@ runs {
     client {
         workingDirectory project.file('run/client')
         systemProperty 'forge.enabledGameTestNamespaces', mod_id
+        // 便于无人值守验收：gradlew runClient -Pquickplay=127.0.0.1:25585 时启动即自动连服喵~
+        // 不传该属性时行为与从前完全一致喵~
+        if (project.hasProperty('quickplay')) {
+            programArguments.addAll '--quickPlayMultiplayer', project.property('quickplay')
+        }
     }
 
     server {

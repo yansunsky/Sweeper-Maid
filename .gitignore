@@ -21,6 +21,14 @@ build
 eclipse
 run
 runs
+# 验收用的额外游戏目录（见 tools/README.md）：
+#   run-nomod    = 装了 NeoForge 但没装本模组的客户端
+#   run-vanilla  = 纯原版客户端
+#   run-server   = 服务端专用目录（若将来拆分）
+run-nomod
+run-vanilla
+# 验收截图
+shots
 
 # docs
 docs
@@ -30,3 +38,7 @@ forge*changelog.txt
 
 # logs
 *.log
+
+# python
+__pycache__/
+*.pyc

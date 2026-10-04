@@ -20,6 +20,9 @@ A Minecraft mod that cleans up dropped items and unnecessary entities on your se
 10. **Fork welcome message**: Players are notified on login by default that this is the Yansunsky fork; please do not report issues to the original author. Toggle it with `/sweepermaid welcome on|off` (OP) or the `SHOW_FORK_WELCOME` config option.
 11. **Bilingual config comments**: All config options have both English and Chinese comments.
 12. **Game tests**: Built-in GameTests cover large-stack serialization, merge, sorting, take limits, pack/import roundtrips, etc. (`gradlew runGameTestServer`).
+13. **Optional client (v2.1.0)**: **Players without this mod can join the server and use the dustbin normally.** The server now hosts the dustbin on a vanilla chest menu (no custom menu type is registered) and carries the page state over an optional network channel. A modded client "takes over" that screen and gets the custom UI with paging controls; an unmodded client sees a plain vanilla 6×9 chest showing the current page (viewable and usable, just without the paging buttons or the abbreviated counts). All three client types — modded, NeoForge-only, and fully vanilla — have been verified on a live server.
+
+> **Why item 13 matters**: previously a client without this mod **was kicked during the handshake** (an unresolvable custom `MenuType` plus non-optional network payloads). Players running NeoForge but not this mod were especially affected. Those constraints are now gone.
 
 ## Commands
 
@@ -58,8 +61,12 @@ Pack files are stored under `sweeper_maid_packs/` in the world save directory (`
 ```
 gradlew runClient          # launch the client
 gradlew runServer          # launch the dedicated server (set eula=true in run/server/eula.txt)
-gradlew runGameTestServer  # run game tests (needs run/testServer/gameteststructures/empty.snbt)
+gradlew runGameTestServer  # run game tests (structure template: src/main/resources/data/sweeper_maid/structure/empty.nbt)
 ```
+
+For the optional-client acceptance tooling, see [`tools/README.md`](tools/README.md): `launch_nomod_client.py` and
+`launch_plain_client.py` start a NeoForge-only and a fully vanilla client respectively, to verify that players
+without the mod can still join and open the dustbin.
 
 ## License
 

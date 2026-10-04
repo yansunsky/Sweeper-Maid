@@ -4,7 +4,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.hexagram2021.sweeper_maid.command.SMCommands;
 import com.hexagram2021.sweeper_maid.config.SMCommonConfig;
-import com.hexagram2021.sweeper_maid.inventory.SMRegistries;
+import com.hexagram2021.sweeper_maid.network.SMDustbinStatePayload;
+import com.hexagram2021.sweeper_maid.network.SMDustbinSyncRequestPayload;
 import com.hexagram2021.sweeper_maid.network.SMPageChangePayload;
 import com.hexagram2021.sweeper_maid.save.SMSavedData;
 import com.hexagram2021.sweeper_maid.util.SMText;
@@ -62,6 +63,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 
 /**
  * 扫帚女仆模组主类，负责定期清理服务器中的掉落物品和多余实体喵~
@@ -113,7 +115,6 @@ public class SweeperMaid {
 	public SweeperMaid(ModContainer modContainer) {
 		instance = this;
 		modContainer.registerConfig(ModConfig.Type.COMMON, SMCommonConfig.getConfig());
-		SMRegistries.MENUS.register(modContainer.getEventBus());
 		modContainer.getEventBus().addListener(RegisterPayloadHandlersEvent.class, this::registerPayloadHandlers);
 		NeoForge.EVENT_BUS.register(this);
 
@@ -131,8 +132,14 @@ public class SweeperMaid {
 	 * @param event 负载注册事件喵~
 	 */
 	public void registerPayloadHandlers(RegisterPayloadHandlersEvent event) {
+		// 必须用 optional()：不带该标记的负载属于「连接必需」，未装本模组的客户端会在握手阶段
+		// 被直接踢下线（"multiplayer.disconnect.incompatible"），连服务器都进不去喵~
+		// 服务端每次发送前还会再用 hasChannel 兜一次底（见各负载的 send 方法）喵~
 		event.registrar(SweeperMaid.VERSION)
-				.playToServer(SMPageChangePayload.TYPE, SMPageChangePayload.STREAM_CODEC, SMPageChangePayload::handle);
+				.optional()
+				.playToServer(SMPageChangePayload.TYPE, SMPageChangePayload.STREAM_CODEC, SMPageChangePayload::handle)
+				.playToServer(SMDustbinSyncRequestPayload.TYPE, SMDustbinSyncRequestPayload.STREAM_CODEC, SMDustbinSyncRequestPayload::handle)
+				.playToClient(SMDustbinStatePayload.TYPE, SMDustbinStatePayload.STREAM_CODEC, SMDustbinStatePayload::handle);
 	}
 
 	/**
@@ -351,7 +358,7 @@ public class SweeperMaid {
 	@SubscribeEvent
 	public void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
 		if (event.getEntity() instanceof ServerPlayer player && SMCommonConfig.SHOW_FORK_WELCOME.get()) {
-			player.sendSystemMessage(createForkWelcomeMessage());
+			player.sendSystemMessage(createForkWelcomeMessage(player));
 		}
 	}
 
@@ -360,13 +367,19 @@ public class SweeperMaid {
 	 * <p>
 	 * 关键词（分支名、QQ、邮箱、关闭指令、配置项）使用金色高亮，其余文字灰色喵~
 	 * </p>
+	 * <p>
+	 * 兜底文本按<b>该玩家客户端的语言</b>取：未装模组的客户端没有本模组的语言文件，
+	 * 若不带兜底就会把 {@code sweeper_maid.message.fork_welcome} 这个键名直接显示给玩家喵~
+	 * </p>
 	 *
+	 * @param player 目标玩家喵~
 	 * @return 欢迎消息组件喵~
 	 */
-	private static MutableComponent createForkWelcomeMessage() {
+	private static MutableComponent createForkWelcomeMessage(ServerPlayer player) {
 		ChatFormatting normal = ChatFormatting.GRAY;
 		ChatFormatting highlight = ChatFormatting.GOLD;
-		return Component.translatable(
+		return SMText.rawForPlayer(
+				player,
 				"sweeper_maid.message.fork_welcome",
 				Component.literal("Yansunsky").withStyle(highlight),
 				Component.literal("1321833118").withStyle(highlight),
@@ -396,15 +409,19 @@ public class SweeperMaid {
 	 * <p>
 	 * 仅当服务器启用命令反馈时，向所有在线管理员发送系统消息喵~
 	 * </p>
+	 * <p>
+	 * 参数是「按玩家生成组件」的函数而不是现成组件：每个管理员的客户端语言可能不同，
+	 * 各自生成才能都拿到正确语言的兜底文本（未装模组的客户端尤其需要）喵~。
+	 * </p>
 	 *
 	 * @param server 服务器实例喵~
-	 * @param message 要发送的消息组件喵~
+	 * @param messageFactory 按玩家生成消息组件的函数喵~
 	 */
-	private static void broadcastToAdmins(MinecraftServer server, Component message) {
+	private static void broadcastToAdmins(MinecraftServer server, Function<ServerPlayer, Component> messageFactory) {
 		if (server.getGameRules().getBoolean(GameRules.RULE_SENDCOMMANDFEEDBACK)) {
 			for(ServerPlayer serverplayer : server.getPlayerList().getPlayers()) {
 				if (server.getPlayerList().isOp(serverplayer.getGameProfile())) {
-					serverplayer.sendSystemMessage(message);
+					serverplayer.sendSystemMessage(messageFactory.apply(serverplayer));
 				}
 			}
 		}
@@ -438,7 +455,7 @@ public class SweeperMaid {
 		} else {
 			int cleared = SMSavedData.getInstance().clearDustbins();
 			if (cleared > 0) {
-				broadcastToAdmins(server, SMText.of(SMCommonConfig.MESSAGE_DUSTBIN_CLEARED, "sweeper_maid.message.dustbin_trash_cleared", cleared));
+				broadcastToAdmins(server, player -> SMText.forPlayer(player, SMCommonConfig.MESSAGE_DUSTBIN_CLEARED, "sweeper_maid.message.dustbin_trash_cleared", cleared));
 			}
 		}
 	}
@@ -472,12 +489,12 @@ public class SweeperMaid {
 			Path file = dir.resolve(name);
 			int packed = SMSavedData.getInstance().packDustbins(server.registryAccess(), file);
 			if (packed > 0) {
-				broadcastToAdmins(server, SMText.of(SMCommonConfig.MESSAGE_DUSTBIN_PACKED, "sweeper_maid.message.dustbin_trash_packed", packed, file.toString()));
+				broadcastToAdmins(server, player -> SMText.forPlayer(player, SMCommonConfig.MESSAGE_DUSTBIN_PACKED, "sweeper_maid.message.dustbin_trash_packed", packed, file.toString()));
 			} else if (notifyEmpty) {
-				broadcastToAdmins(server, Component.translatable("sweeper_maid.message.dustbin_pack_empty").withStyle(ChatFormatting.YELLOW));
+				broadcastToAdmins(server, player -> SMText.forPlayer(player, "sweeper_maid.message.dustbin_pack_empty").withStyle(ChatFormatting.YELLOW));
 			}
 		} catch (IOException e) {
-			broadcastToAdmins(server, Component.literal("[Sweeper Maid] Failed to pack dustbins: " + e.getMessage()).withStyle(ChatFormatting.RED));
+			broadcastToAdmins(server, player -> Component.literal("[Sweeper Maid] Failed to pack dustbins: " + e.getMessage()).withStyle(ChatFormatting.RED));
 		}
 	}
 
@@ -504,7 +521,7 @@ public class SweeperMaid {
 			Path importedDir = dir.resolve("imported");
 			Files.createDirectories(importedDir);
 			Files.move(file, importedDir.resolve(fileName), StandardCopyOption.REPLACE_EXISTING);
-			player.sendSystemMessage(SMText.of(SMCommonConfig.MESSAGE_DUSTBIN_UNPACKED, "sweeper_maid.message.dustbin_trash_unpacked", fileName, imported));
+			player.sendSystemMessage(SMText.forPlayer(player, SMCommonConfig.MESSAGE_DUSTBIN_UNPACKED, "sweeper_maid.message.dustbin_trash_unpacked", fileName, imported));
 			return true;
 		} catch (IOException e) {
 			player.sendSystemMessage(Component.literal("[Sweeper Maid] Failed to import pack: " + e.getMessage()).withStyle(ChatFormatting.RED));
@@ -531,7 +548,7 @@ public class SweeperMaid {
 				try {
 					player.connection.send(new ClientboundSetActionBarTextPacket(ComponentUtils.updateForEntity(
 							createCommandSourceStack(player, player.level(), player.blockPosition()),
-							SMText.of(SMCommonConfig.MESSAGE_BEFORE_SWEEP_15_30_60, "sweeper_maid.message.before_sweep_15_30_60", this.sweepTickRemain / SharedConstants.TICKS_PER_SECOND).withStyle(ChatFormatting.GRAY),
+							SMText.forPlayer(player, SMCommonConfig.MESSAGE_BEFORE_SWEEP_15_30_60, "sweeper_maid.message.before_sweep_15_30_60", this.sweepTickRemain / SharedConstants.TICKS_PER_SECOND).withStyle(ChatFormatting.GRAY),
 							player, 0
 					)));
 				} catch (CommandSyntaxException ignored) {
@@ -543,7 +560,7 @@ public class SweeperMaid {
 				try {
 					player.connection.send(new ClientboundSetActionBarTextPacket(ComponentUtils.updateForEntity(
 							createCommandSourceStack(player, player.level(), player.blockPosition()),
-							SMText.of(SMCommonConfig.MESSAGE_BEFORE_SWEEP_1_10, "sweeper_maid.message.before_sweep_1_10", this.sweepTickRemain / SharedConstants.TICKS_PER_SECOND).withStyle(ChatFormatting.GOLD),
+							SMText.forPlayer(player, SMCommonConfig.MESSAGE_BEFORE_SWEEP_1_10, "sweeper_maid.message.before_sweep_1_10", this.sweepTickRemain / SharedConstants.TICKS_PER_SECOND).withStyle(ChatFormatting.GOLD),
 							player, 0
 					)));
 				} catch (CommandSyntaxException ignored) {
@@ -599,7 +616,7 @@ public class SweeperMaid {
 			try {
 				player.connection.send(new ClientboundSetActionBarTextPacket(ComponentUtils.updateForEntity(
 						createCommandSourceStack(player, player.level(), player.blockPosition()),
-						SMText.of(SMCommonConfig.MESSAGE_AFTER_SWEEP, "sweeper_maid.message.after_sweep", droppedItems, extraEntities, blacklistedItems)  // 增加黑名单物品统计
+						SMText.forPlayer(player, SMCommonConfig.MESSAGE_AFTER_SWEEP, "sweeper_maid.message.after_sweep", droppedItems, extraEntities, blacklistedItems)  // 增加黑名单物品统计
 								.withStyle(ChatFormatting.AQUA),
 						player, 0
 				)));
@@ -613,11 +630,11 @@ public class SweeperMaid {
 		int xpConverted = xp;
 		int bottleCount = bottles;
 		server.getPlayerList().getPlayers().forEach(player -> {
-			MutableComponent message = SMText.of(SMCommonConfig.CHAT_MESSAGE_AFTER_SWEEP, "sweeper_maid.message.chat_after_sweep");
+			MutableComponent message = SMText.forPlayer(player, SMCommonConfig.CHAT_MESSAGE_AFTER_SWEEP, "sweeper_maid.message.chat_after_sweep");
 
 			if (xpConverted > 0) {
 				message.append(Component.literal(" "))
-						.append(SMText.of(SMCommonConfig.MESSAGE_XP_CONVERTED, "sweeper_maid.message.xp_converted", xpConverted, bottleCount)
+						.append(SMText.forPlayer(player, SMCommonConfig.MESSAGE_XP_CONVERTED, "sweeper_maid.message.xp_converted", xpConverted, bottleCount)
 								.withStyle(ChatFormatting.YELLOW));
 			}
 
@@ -637,7 +654,7 @@ public class SweeperMaid {
 					}
 					final int dustbinIndex = i;
 					message.append(Component.literal("[")
-							.append(SMText.of(SMCommonConfig.DUSTBIN_NAME, "sweeper_maid.dustbin.name", dustbinIndex))
+							.append(SMText.forPlayer(player, SMCommonConfig.DUSTBIN_NAME, "sweeper_maid.dustbin.name", dustbinIndex))
 							.append("]")
 							.withStyle(style -> style.withColor(ChatFormatting.GREEN)
 									.withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/sweepermaid dustbin " + dustbinIndex))));
@@ -652,11 +669,8 @@ public class SweeperMaid {
 		chunkItemCounts.forEach((chunk, itemCounts) -> itemCounts.forEach((itemKey, count) -> {
 			if (count > itemOverloadThreshold) {
 				BlockPos chunkPos = chunk.getPos().getWorldPosition();
-				MutableComponent overloadMessage = SMText.of(SMCommonConfig.OVERLOAD_MESSAGE, "sweeper_maid.message.overload",
-								chunkPos.getX(), chunkPos.getZ(), count, itemKey)
-						.withStyle(ChatFormatting.BLUE);
-
-				broadcastToAdmins(server, overloadMessage);
+				broadcastToAdmins(server, player -> SMText.forPlayer(player, SMCommonConfig.OVERLOAD_MESSAGE, "sweeper_maid.message.overload",
+						chunkPos.getX(), chunkPos.getZ(), count, itemKey).withStyle(ChatFormatting.BLUE));
 			}
 		}));
 
@@ -668,7 +682,7 @@ public class SweeperMaid {
 		// 过载触发的额外清扫：向所有在线玩家发送提示消息
 		if (overloadSweep) {
 			server.getPlayerList().getPlayers().forEach(player ->
-					player.sendSystemMessage(SMText.of(SMCommonConfig.MESSAGE_OVERLOAD_SWEEP, "sweeper_maid.message.overload_sweep", sweptItemPiles)));
+					player.sendSystemMessage(SMText.forPlayer(player, SMCommonConfig.MESSAGE_OVERLOAD_SWEEP, "sweeper_maid.message.overload_sweep", sweptItemPiles)));
 		}
 	}
 

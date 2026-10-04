@@ -128,9 +128,11 @@ public final class SMCommands {
 	 * @return 命令执行结果码喵~
 	 */
 	private static int help(CommandSourceStack source) {
-		MutableComponent message = Component.translatable("sweeper_maid.help.title").withStyle(ChatFormatting.GOLD);
+		ServerPlayer player = source.getPlayer();
+		MutableComponent message = SMText.forPlayer(player, "sweeper_maid.help.title").withStyle(ChatFormatting.GOLD);
 		for (String key : new String[]{"dustbin", "clean", "welcome", "trash", "pack", "unpack", "help"}) {
-			message.append(Component.literal("\n").append(Component.translatable("sweeper_maid.help." + key).withStyle(ChatFormatting.GRAY)));
+			message.append(Component.literal("\n")
+					.append(SMText.forPlayer(player, "sweeper_maid.help." + key).withStyle(ChatFormatting.GRAY)));
 		}
 		source.sendSuccess(() -> message, false);
 		return 1;
@@ -155,7 +157,7 @@ public final class SMCommands {
 			DustbinMenu.open(player, index);
 			return 1;
 		}
-		player.sendSystemMessage(SMText.of(SMCommonConfig.MESSAGE_WRONG_DUSTBIN, "sweeper_maid.message.wrong_dustbin"));
+		player.sendSystemMessage(SMText.forPlayer(player, SMCommonConfig.MESSAGE_WRONG_DUSTBIN, "sweeper_maid.message.wrong_dustbin"));
 		return 0;
 	}
 
@@ -182,7 +184,9 @@ public final class SMCommands {
 	private static int setForkWelcome(CommandSourceStack source, boolean enabled) {
 		SMCommonConfig.SHOW_FORK_WELCOME.set(enabled);
 		SMCommonConfig.SHOW_FORK_WELCOME.save();
-		source.sendSuccess(() -> Component.translatable(
+		ServerPlayer player = source.getPlayer();
+		source.sendSuccess(() -> SMText.forPlayer(
+				player,
 				enabled ? "sweeper_maid.message.fork_welcome_enabled" : "sweeper_maid.message.fork_welcome_disabled"
 		).withStyle(ChatFormatting.GREEN), false);
 		return 1;
@@ -221,7 +225,7 @@ public final class SMCommands {
 		if (source.getPlayer() instanceof ServerPlayer player) {
 			return SweeperMaid.unpackDustbinFile(source.getServer(), fileName, player) ? 1 : 0;
 		}
-		source.sendFailure(Component.translatable("sweeper_maid.message.unpack_console_only"));
+		source.sendFailure(SMText.forPlayer(null, "sweeper_maid.message.unpack_console_only"));
 		return 0;
 	}
 

@@ -10,7 +10,9 @@ issueTrackerURL="https://github.com/Viola-Siemens/Sweeper-Maid/issues"
     logoFile="logo.png"
     credits="Hexagram"
     authors="${mod_authors}"
-    description='''${mod_description}'''
+    description='''${mod_description}
+
+The client side of this mod is entirely optional. A player without the mod installed can join a server running it and use the dustbin normally, seeing a plain vanilla double-chest view of the currently shown page. Only the paging controls, the shortened K/M/B item counts and the exact-amount tooltip require the mod on the client; the server exposes the dustbin over a completely vanilla menu so unmodded clients are never rejected during the connection handshake.'''
 
 [[dependencies.${mod_id}]]
     modId="neoforge"

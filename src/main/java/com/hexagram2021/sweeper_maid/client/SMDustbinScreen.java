@@ -14,6 +14,8 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.api.distmarker.OnlyIn;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 /**
@@ -21,7 +23,12 @@ import net.neoforged.neoforge.network.PacketDistributor;
  * <p>
  * 在原版大箱子界面基础上，于顶部左侧绘制「上一页 / 页码 / 下一页」翻页控件喵~
  * </p>
+ * <p>
+ * 本类标了 {@link OnlyIn}：它继承了客户端专有的 {@link AbstractContainerScreen}，
+ * 加上该注解后 NeoForge 的 dist cleaner 会在专用服务端把这个类整体剥掉喵~
+ * </p>
  */
+@OnlyIn(Dist.CLIENT)
 public class SMDustbinScreen extends AbstractContainerScreen<DustbinMenu> {
 	/**
 	 * 界面背景贴图（复用原版 6×9 箱子）喵~

@@ -10,6 +10,7 @@ import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
+import net.minecraft.util.Mth;
 import net.minecraft.world.level.saveddata.SavedData;
 import net.minecraft.world.item.ItemStack;
 
@@ -179,6 +180,40 @@ public final class SMSavedData extends SavedData {
 	 */
 	public static int getPageCount() {
 		return getInstance().dustbins.size();
+	}
+
+	/**
+	 * 一次原子地取回「总页数 + 钳制后的页码 + 该页容器」喵~
+	 * <p>
+	 * 清扫结束后的 {@code sortDustbins()} 以及导入打包都会 {@code clear()} 再 {@code addAll()}，
+	 * 把 {@code dustbins} 列表整体换掉。如果分两次调用 {@link #getPageCount()} 与
+	 * {@link #getDustbinContainer(int)}，中间就可能被这些重建打断，出现「读到 3 页、再取第 2 页时
+	 * 列表只剩 1 页」的越界崩溃喵~。菜单每 tick 都要读这份状态，所以必须一次拿全喵~。
+	 * </p>
+	 *
+	 * @param preferredPage 期望的页索引，越界会被钳制喵~
+	 * @return 快照；垃圾箱列表为空时返回 {@code null} 喵~
+	 */
+	@Nullable
+	public static PageSnapshot snapshotPage(int preferredPage) {
+		synchronized (getInstance().dustbins) {
+			List<SMDustbinContainer> dustbins = getInstance().dustbins;
+			if (dustbins.isEmpty()) {
+				return null;
+			}
+			int page = Mth.clamp(preferredPage, 0, dustbins.size() - 1);
+			return new PageSnapshot(dustbins.size(), page, dustbins.get(page));
+		}
+	}
+
+	/**
+	 * 某一页状态的原子快照喵~
+	 *
+	 * @param pageCount 总页数（至少为 1）喵~
+	 * @param page      钳制后的页索引喵~
+	 * @param container 该页的垃圾箱容器喵~
+	 */
+	public record PageSnapshot(int pageCount, int page, SMDustbinContainer container) {
 	}
 
 	/**

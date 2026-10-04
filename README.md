@@ -21,6 +21,9 @@
 11. **大数量缩写显示**：垃圾箱槽位物品数量 ≥ 1000 时以 `1.2K`、`4.6M`、`1.5B` 形式显示；数量文本超出槽位宽度时自动缩小字号，确保不压到相邻槽位；鼠标悬停物品会显示信息，大堆叠物品额外显示确切数量（取走仍按精确数量计算）。
 12. **配置双语注释**：所有配置项注释中英双语。
 13. **游戏测试**：内置 GameTest 覆盖大容量序列化、翻页合并、排序、取走限制、打包导入等核心逻辑（`gradlew runGameTestServer`）。
+14. **客户端可选（v2.1.0）**：**未安装本模组的玩家也能正常进服并使用垃圾箱**。服务端改用原版箱子菜单承载垃圾箱（不再注册自定义菜单类型），翻页状态走可选网络通道；装了模组的客户端会把它「接管」成带翻页控件的自研界面，没装的则看到原版 6×9 箱子界面（当前页可正常查看与取放，只是没有翻页按钮与数量缩写）。三种客户端（装了模组 / 只装 NeoForge / 纯原版）均已实机验证。
+
+> **为什么要点 14**：以前未装模组的客户端**连服都会被踢**（自定义 `MenuType` 解析失败、非可选网络负载握手失败），装了 NeoForge 但没装本模组的客户端尤其容易中招。现在这些限制全部移除。
 
 ## 命令
 
@@ -59,8 +62,11 @@
 ```
 gradlew runClient          # 启动客户端
 gradlew runServer          # 启动专用服务器（需 run/server/eula.txt 中 eula=true）
-gradlew runGameTestServer  # 运行游戏测试（需 run/testServer/gameteststructures/empty.snbt）
+gradlew runGameTestServer  # 运行游戏测试（结构模板：src/main/resources/data/sweeper_maid/structure/empty.nbt）
 ```
+
+客户端可选用例的自动化验收工具见 [`tools/README.md`](tools/README.md)：其中的 `launch_nomod_client.py` 与
+`launch_plain_client.py` 可分别拉起「只装 NeoForge」与「纯原版」客户端，用于验证未装模组的玩家能否正常进服开箱。
 
 ## 许可
 

@@ -44,6 +44,10 @@ public class SMDustbinSlot extends Slot {
 	 * <p>
 	 * 将取走数量钳制到 {@link SMDustbinContainer#TAKE_LIMIT}，避免超大堆被一次取出喵~
 	 * </p>
+	 * <p>
+	 * 注意：「数字键交换」（{@code ClickType.SWAP}）不会走到这里，它直接把整堆搬进快捷栏，
+	 * 所以那条路径由 {@code DustbinMenu#clicked} 单独拦下喵~
+	 * </p>
 	 *
 	 * @param amount    请求取走的数量喵~
 	 * @param decrement 允许的最大减少量喵~
