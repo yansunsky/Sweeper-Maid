@@ -1,6 +1,9 @@
 package com.hexagram2021.sweeper_maid.gametest;
 
+import com.mojang.authlib.GameProfile;
 import com.hexagram2021.sweeper_maid.SweeperMaid;
+import com.hexagram2021.sweeper_maid.compat.SMCreateCompat;
+import com.hexagram2021.sweeper_maid.config.SMCommonConfig;
 import com.hexagram2021.sweeper_maid.inventory.DustbinMenu;
 import com.hexagram2021.sweeper_maid.network.SMDustbinStatePayload;
 import com.hexagram2021.sweeper_maid.network.SMDustbinSyncRequestPayload;
@@ -16,6 +19,11 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.ConnectionProtocol;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ClientInformation;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.players.PlayerList;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
@@ -26,6 +34,8 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
+import net.neoforged.neoforge.event.entity.EntityLeaveLevelEvent;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 import net.neoforged.neoforge.network.negotiation.NegotiableNetworkComponent;
@@ -42,6 +52,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * 扫帚女仆模组游戏测试类喵~
@@ -252,28 +263,54 @@ public final class SMGameTests {
 	/**
 	 * 掉落物实体计数测试喵~
 	 * <p>
-	 * 生成掉落物实体后计数应增加，移除后计数应回落喵~
+	 * 分两段，分别覆盖「集成」与「精确」两个口径喵~：
+	 * </p>
+	 * <p>
+	 * <b>第一段（集成）</b>：真的往世界里生成 2 个掉落物，计数必须至少 +2。
+	 * 只断言「不低于 +2」而<b>不</b>断言归零：这个计数器统计的是<b>全服</b>掉落物堆数，
+	 * 而 GameTest 会并行跑其它模组的测试。装了机械动力时它自带 64 个测试会同时生成/销毁掉落物，
+	 * 绝对计数永远不可能稳定归零（旧断言 `== 0` 实测读到 11 而误报失败）喵~。
+	 * </p>
+	 * <p>
+	 * <b>第二段（精确）</b>：直接调用模组的进出世界事件处理器，断言计数<b>恰好</b> ±1。
+	 * 这一段之所以能要求精确值，是因为 GameTest 回调与事件处理都跑在<b>服务端主线程</b>上，
+	 * 两行读改写之间不可能被其它测试插入；而依赖世界里的真实生成/销毁则做不到这一点喵~。
 	 * </p>
 	 */
 	@GameTest(template = "empty", timeoutTicks = 300)
 	public static void testItemEntityCounter(GameTestHelper helper) {
+		final int baseline = getItemEntityCount();
 		Vec3 pos = helper.absoluteVec(new Vec3(0.5, 2.0, 0.5));
 		ItemEntity first = helper.spawnItem(Items.DIAMOND, pos);
 		ItemEntity second = helper.spawnItem(Items.EMERALD, pos);
 
 		helper.runAfterDelay(2, () -> {
-			if (getItemEntityCount() < 2) {
-				helper.fail("Item entity counter did not increase after spawning, got " + getItemEntityCount());
+			// 第一段：集成口径——只要求「至少 +2」，容忍并发测试带来的其它增减喵~
+			int afterSpawn = getItemEntityCount();
+			if (afterSpawn < baseline + 2) {
+				helper.fail("Item entity counter did not increase by at least 2 after spawning (baseline="
+						+ baseline + ", now=" + afterSpawn + ")");
 				return;
 			}
 			first.discard();
 			second.discard();
-		});
 
-		helper.runAfterDelay(130, () -> {
-			int count = getItemEntityCount();
-			if (count > 0) {
-				helper.fail("Item entity counter did not return to zero after discard, got " + count);
+			// 第二段：精确口径——用不进入世界的探针实体，手动触发模组的事件处理器喵~
+			ServerLevel level = helper.getLevel();
+			ItemEntity probe = new ItemEntity(level, pos.x, pos.y, pos.z, new ItemStack(Items.DIAMOND));
+			int before = getItemEntityCount();
+			SweeperMaid.instance.onEntityJoin(new EntityJoinLevelEvent(probe, level));
+			int afterJoin = getItemEntityCount();
+			if (afterJoin != before + 1) {
+				helper.fail("EntityJoinLevelEvent should increase the counter by exactly 1, but "
+						+ before + " -> " + afterJoin);
+				return;
+			}
+			SweeperMaid.instance.onEntityLeave(new EntityLeaveLevelEvent(probe, level));
+			int afterLeave = getItemEntityCount();
+			if (afterLeave != before) {
+				helper.fail("EntityLeaveLevelEvent should decrease the counter by exactly 1, but "
+						+ afterJoin + " -> " + afterLeave);
 				return;
 			}
 			helper.succeed();
@@ -470,7 +507,7 @@ public final class SMGameTests {
 	/**
 	 * 「纯原版客户端」握手模拟测试喵~
 	 * <p>
-	 * 这是最贴近真实场景的回归测试：把本模组注册的<b>全部</b>负载喂给 NeoForge 真正的协商器，
+	 * 这是最贴近真实场景的回归测试：把本模组注册的负载喂给 NeoForge 真正的协商器，
 	 * 客户端一侧传<b>空列表</b>——正是纯原版客户端在配置阶段能提供的通道集合
 	 * （见 {@code NetworkRegistry#initializeOtherConnection}）喵~
 	 * </p>
@@ -478,17 +515,27 @@ public final class SMGameTests {
 	 * 只要本模组漏掉一个 {@code .optional()}，协商就会失败，真实服务器会立刻把玩家踢下线。
 	 * 这里断言协商必须成功，从而把「未装模组的客户端能不能进服」这条验收标准钉死在自动化测试里喵~
 	 * </p>
+	 * <p>
+	 * <b>为什么只喂「本模组自己的」负载</b>：NeoForge 的负载注册表是<b>全服共享</b>的。
+	 * 若把别的模组（如机械动力，它注册了大量<b>非可选</b>通道）的负载也一起喂进来，
+	 * 失败原因会来自别的模组，而与本模组的 optional 纪律无关——
+	 * 实测装了机械动力后本测试就会因此误报失败喵~。
+	 * 本测试要钉的是<b>本模组</b>的契约，所以必须按命名空间过滤，只保留 {@code sweeper_maid:} 的负载喵~。
+	 * </p>
 	 */
 	@GameTest(template = "empty")
 	public static void testVanillaClientHandshakeNegotiates(GameTestHelper helper) {
 		List<NegotiableNetworkComponent> serverComponents = new ArrayList<>();
 		for (ConnectionProtocol protocol : ConnectionProtocol.values()) {
 			for (PayloadRegistration<?> registration : allRegistrations(protocol)) {
-				serverComponents.add(new NegotiableNetworkComponent(registration));
+				// 只测本模组的通道：别的模组的 optional 纪律不归本模组负责喵~
+				if (isOurPayload(registration)) {
+					serverComponents.add(new NegotiableNetworkComponent(registration));
+				}
 			}
 		}
 		if (serverComponents.isEmpty()) {
-			helper.fail("No payloads were registered at all; the reflection lookup is broken");
+			helper.fail("No sweeper_maid payloads were found; the reflection lookup or the namespace filter is broken");
 			return;
 		}
 
@@ -499,6 +546,16 @@ public final class SMGameTests {
 			return;
 		}
 		helper.succeed();
+	}
+
+	/**
+	 * 判断某个负载是否属于本模组喵~
+	 *
+	 * @param registration 负载注册信息喵~
+	 * @return 命名空间为 {@code sweeper_maid} 时返回 true 喵~
+	 */
+	private static boolean isOurPayload(PayloadRegistration<?> registration) {
+		return SweeperMaid.MODID.equals(registration.id().getNamespace());
 	}
 
 	/**
@@ -632,6 +689,457 @@ public final class SMGameTests {
 			helper.fail("Menu did not rebind to the rotated container: read " + menu.getItem(0)
 					+ ", expected 1234 diamonds");
 			return;
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * 经验颗粒换算率的回归测试喵~
+	 * <p>
+	 * 换算率不是拍脑袋定的，而是取自 Create 源码
+	 * {@code ExperienceNuggetItem#use} 里的 {@code Mth.ceil(3f * amountUsed)}：
+	 * <b>1 颗经验颗粒 = 3 点经验</b>喵~。
+	 * </p>
+	 * <p>
+	 * 这里把数学钉死在测试里，防止将来有人「顺手」改成 1 或 5：
+	 * 向下取整保证绝不刷经验，且 3 的整数倍必须无损耗喵~
+	 * </p>
+	 */
+	@GameTest(template = "empty")
+	public static void testExperienceNuggetMath(GameTestHelper helper) {
+		if (SMCreateCompat.XP_PER_NUGGET != 3) {
+			helper.fail("XP_PER_NUGGET must stay 3 to match Create's ExperienceNuggetItem, got " + SMCreateCompat.XP_PER_NUGGET);
+			return;
+		}
+		// 必须是「1 颗换 3 点」：少于 3 点换不出整颗，3 的倍数必须无损耗喵~
+		int[][] cases = {{0, 0}, {1, 0}, {2, 0}, {3, 1}, {4, 1}, {5, 1}, {6, 2}, {9, 3}, {100, 33}, {1234, 411}};
+		for (int[] c : cases) {
+			int actual = SMCreateCompat.nuggetsFor(c[0]);
+			if (actual != c[1]) {
+				helper.fail(c[0] + " xp should convert into " + c[1] + " nugget(s), got " + actual);
+				return;
+			}
+		}
+		// 负经验不该产出物品（经验球数值理论上非负，防御性断言）喵~
+		if (SMCreateCompat.nuggetsFor(-5) != 0) {
+			helper.fail("Negative xp must not produce nuggets");
+			return;
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * 附魔之瓶换算率的回归测试喵~
+	 * <p>
+	 * 附魔之瓶仍按原作口径「向上取整」（开瓶只给 3~11 点经验，适度折损可避免刷经验），
+	 * 这条路径在未装机械动力时必须保持不变喵~
+	 * </p>
+	 */
+	@GameTest(template = "empty")
+	public static void testExperienceBottleMath(GameTestHelper helper) {
+		int[][] cases = {{0, 0}, {1, 1}, {9, 1}, {10, 1}, {11, 2}, {100, 10}, {101, 11}};
+		for (int[] c : cases) {
+			int actual = SMCreateCompat.bottlesFor(c[0], 10);
+			if (actual != c[1]) {
+				helper.fail(c[0] + " xp with 10 xp/bottle should be " + c[1] + " bottle(s), got " + actual);
+				return;
+			}
+		}
+		// 配置为 0 或负数时必须安全返回 0，而不是除零崩溃喵~
+		if (SMCreateCompat.bottlesFor(100, 0) != 0 || SMCreateCompat.bottlesFor(100, -1) != 0) {
+			helper.fail("A non-positive XP_PER_BOTTLE must yield 0 bottles instead of crashing");
+			return;
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * 折算模式解析测试喵~
+	 * <p>
+	 * 配置是服主手写的，必须容忍大小写、首尾空白与拼写错误：
+	 * 无法识别的值退回 {@code auto}，绝不能因为写错就让经验凭空消失喵~
+	 * </p>
+	 */
+	@GameTest(template = "empty")
+	public static void testConversionModeParsing(GameTestHelper helper) {
+		Object[][] cases = {
+				{"auto", SMCreateCompat.ConversionMode.AUTO},
+				{"bottle", SMCreateCompat.ConversionMode.BOTTLE},
+				{"nugget", SMCreateCompat.ConversionMode.NUGGET},
+				{"discard", SMCreateCompat.ConversionMode.DISCARD},
+				{"  DISCARD  ", SMCreateCompat.ConversionMode.DISCARD},
+				{"Bottle", SMCreateCompat.ConversionMode.BOTTLE},
+				{"NUUGET", SMCreateCompat.ConversionMode.AUTO},
+				{"", SMCreateCompat.ConversionMode.AUTO},
+				{null, SMCreateCompat.ConversionMode.AUTO},
+		};
+		for (Object[] c : cases) {
+			SMCreateCompat.ConversionMode actual = SMCreateCompat.ConversionMode.byName((String) c[0]);
+			if (actual != c[1]) {
+				helper.fail("Mode '" + c[0] + "' should parse as " + c[1] + ", got " + actual);
+				return;
+			}
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * 未装机械动力时不得产出经验颗粒的回归测试喵~
+	 * <p>
+	 * 这是本联动最关键的一条安全约束：{@code BuiltInRegistries.ITEM} 是
+	 * {@code DefaultedRegistry}，查不到键时 {@code get()} 返回的是 {@code Items.AIR}
+	 * 而<b>不是</b> {@code null}。若照抄 {@code get()} 的写法，未装 Create 时就会
+	 * 「成功」拿到空气并往垃圾箱里塞一堆空气（或数量虚高），属于静默故障喵~。
+	 * </p>
+	 * <p>
+	 * 本测试在<b>没有</b> Create 的环境下运行，断言：
+	 * <ul>
+	 *     <li>取物品返回 {@code null}，不会返回 air 或别的物品；</li>
+	 *     <li>{@code resolveMode()} 把 {@code auto} 解析成附魔之瓶（而不是颗粒）；</li>
+	 *     <li>服主强制 {@code nugget} 时也退回附魔之瓶，不让经验消失；</li>
+	 *     <li>用它构造的物品堆必为空，入桶路径不会被触发喵~</li>
+	 * </ul>
+	 * </p>
+	 */
+	@GameTest(template = "empty")
+	public static void testNuggetUnavailableWithoutCreate(GameTestHelper helper) {
+		if (SMCreateCompat.isCreateLoaded()) {
+			// 本环境装了 Create 时，这条断言不适用（改由 testNuggetAvailableWithCreate 覆盖）喵~
+			helper.succeed();
+			return;
+		}
+		if (!SMCreateCompat.EXPERIENCE_NUGGET_ID.toString().equals("create:experience_nugget")) {
+			helper.fail("The nugget id must be create:experience_nugget, got " + SMCreateCompat.EXPERIENCE_NUGGET_ID);
+			return;
+		}
+		if (SMCreateCompat.getExperienceNugget() != null) {
+			helper.fail("Without Create the nugget item must be null, got " + SMCreateCompat.getExperienceNugget());
+			return;
+		}
+		if (SMCreateCompat.isNuggetAvailable()) {
+			helper.fail("isNuggetAvailable() must be false without Create");
+			return;
+		}
+		if (!SMCreateCompat.stackOf(null, 5).isEmpty()) {
+			helper.fail("A null item must produce an empty stack, never a stack of air");
+			return;
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * 装了机械动力时必须能取到经验颗粒的回归测试喵~
+	 * <p>
+	 * 与上一条互补：本环境装了 Create 时，断言物品确实存在于注册表里、
+	 * 且 {@code auto} 会解析成颗粒模式；同时物品 ID 必须是
+	 * {@code create:experience_nugget}（官方中文译名「经验颗粒」）喵~。
+	 * </p>
+	 * <p>
+	 * 未装 Create 的环境下该测试直接通过（由上面那条覆盖），因此两种环境下都能全绿喵~。
+	 * </p>
+	 */
+	@GameTest(template = "empty")
+	public static void testNuggetAvailableWithCreate(GameTestHelper helper) {
+		if (!SMCreateCompat.isCreateLoaded()) {
+			helper.succeed();
+			return;
+		}
+		Item nugget = SMCreateCompat.getExperienceNugget();
+		if (nugget == null) {
+			helper.fail("Create is loaded but create:experience_nugget was not found in the item registry");
+			return;
+		}
+		if (!SMCreateCompat.isNuggetAvailable()) {
+			helper.fail("isNuggetAvailable() must be true when Create is loaded");
+			return;
+		}
+		// 取到的必须是真正的经验颗粒，而不是被 DefaultedRegistry 兜底成 air 之类的占位喵~
+		ResourceLocation key = BuiltInRegistries.ITEM.getKey(nugget);
+		if (!SMCreateCompat.EXPERIENCE_NUGGET_ID.equals(key)) {
+			helper.fail("Resolved item is not create:experience_nugget but " + key);
+			return;
+		}
+		ItemStack stack = SMCreateCompat.stackOf(nugget, 4);
+		if (stack.isEmpty() || !stack.is(nugget) || stack.getCount() != 4) {
+			helper.fail("Unexpected nugget stack: " + stack);
+			return;
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * 折算产物（清扫真正调用的那段逻辑）的回归测试喵~
+	 * <p>
+	 * 前面的测试只钉住了换算数学与模式解析；这里直接断言<b>产出物本身</b>，
+	 * 才能保证「装了机械动力时 auto 模式真的产出经验颗粒」这条核心承诺不会在重构中丢失喵~。
+	 * </p>
+	 * <p>
+	 * 本测试两种环境下都要通过，但断言不同：
+	 * <ul>
+	 *     <li>未装 Create：{@code auto}/{@code nugget} 都必须退化成附魔之瓶，且绝不产出空气喵~</li>
+	 *     <li>装了 Create：{@code auto}/{@code nugget} 都必须产出经验颗粒，且数量 = 经验/3 向下取整喵~</li>
+	 * </ul>
+	 * {@code discard} 在两种环境下都不得产出任何物品；{@code bottle} 永远产出附魔之瓶喵~。
+	 * </p>
+	 */
+	@GameTest(template = "empty")
+	public static void testConversionProducesExpectedItem(GameTestHelper helper) {
+		int xp = 100;
+		boolean createLoaded = SMCreateCompat.isNuggetAvailable();
+		Item nugget = SMCreateCompat.getExperienceNugget();
+
+		// 1) discard：任何环境下都不产出物品喵~
+		if (!SMCreateCompat.conversionResultFor(xp, SMCreateCompat.ConversionMode.DISCARD, 10).isEmpty()) {
+			helper.fail("discard mode must produce no item at all");
+			return;
+		}
+
+		// 2) 经验为 0 或负数：不产出物品，也不应抛异常喵~
+		if (!SMCreateCompat.conversionResultFor(0, SMCreateCompat.ConversionMode.NUGGET, 10).isEmpty()
+				|| !SMCreateCompat.conversionResultFor(-3, SMCreateCompat.ConversionMode.BOTTLE, 10).isEmpty()) {
+			helper.fail("A non-positive xp amount must produce no item");
+			return;
+		}
+
+		// 3) bottle：永远产出附魔之瓶，数量向上取整喵~
+		ItemStack bottle = SMCreateCompat.conversionResultFor(xp, SMCreateCompat.ConversionMode.BOTTLE, 10);
+		if (!bottle.is(Items.EXPERIENCE_BOTTLE) || bottle.getCount() != 10) {
+			helper.fail("bottle mode should yield 10 experience bottles for 100 xp, got " + bottle);
+			return;
+		}
+
+		// 4) nugget / auto：按环境断言到底产出什么喵~
+		for (SMCreateCompat.ConversionMode mode : List.of(
+				SMCreateCompat.ConversionMode.NUGGET, SMCreateCompat.ConversionMode.AUTO)) {
+			ItemStack produced = SMCreateCompat.conversionResultFor(xp, mode, 10);
+			if (createLoaded) {
+				if (nugget == null || !produced.is(nugget)) {
+					helper.fail("With Create, mode " + mode + " must produce experience nuggets, got " + produced);
+					return;
+				}
+				if (produced.getCount() != 33) {
+					helper.fail("With Create, 100 xp should yield 33 nuggets (100/3), got " + produced.getCount());
+					return;
+				}
+			} else {
+				if (!produced.is(Items.EXPERIENCE_BOTTLE)) {
+					helper.fail("Without Create, mode " + mode + " must fall back to experience bottles, got " + produced);
+					return;
+				}
+			}
+			// 无论哪条路径，都绝不能产出空气这种静默故障喵~
+			if (produced.isEmpty() || produced.is(Items.AIR)) {
+				helper.fail("Conversion produced air for mode " + mode);
+				return;
+			}
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * 清扫后垃圾箱里应出现经验颗粒的测试（仅装了机械动力时断言）喵~
+	 * <p>
+	 * 这里<b>不</b>直接驱动 {@code doSweeping()}：那是<b>全服</b>清扫，会把同一测试服务器上
+	 * 其它模组的测试实体一起吞掉——实测装了机械动力时会让它自己的 {@code TestItems.storages}
+	 * 因「存储内容缺失」而失败，属于测试之间的相互破坏喵~。
+	 * </p>
+	 * <p>
+	 * 改为直接断言「清扫真正调用的那段折算逻辑」：{@link SMCreateCompat#resolveMode()} 在装了
+	 * Create 时解析出颗粒模式，且 {@link SMCreateCompat#conversionResultFor} 产出经验颗粒。
+	 * 这两者合起来就是清扫里经验入桶前的全部决策；剩下的 {@code addItemToDustbin} 已由
+	 * 垃圾箱相关测试覆盖。整条链路的实机验证改由真实服务端 + RCON 完成
+	 * （见 tools/README.md 的联调流程），不再污染 GameTest 环境喵~。
+	 * </p>
+	 */
+	@GameTest(template = "empty")
+	public static void testSweepingStoresExperienceNuggets(GameTestHelper helper) {
+		Item nugget = SMCreateCompat.getExperienceNugget();
+		if (nugget == null) {
+			// 未装 Create：产物是附魔之瓶，属于既有行为，本测试不适用喵~
+			helper.succeed();
+			return;
+		}
+
+		// 1) 清扫入口所用的模式解析：auto 必须解析成颗粒喵~
+		SMCreateCompat.ConversionMode resolved = SMCreateCompat.resolveMode();
+		if (resolved != SMCreateCompat.ConversionMode.NUGGET) {
+			helper.fail("With Create, resolveMode() must resolve to NUGGET, got " + resolved);
+			return;
+		}
+
+		// 2) 清扫真正调用的折算函数必须产出经验颗粒，且数量 = 经验/3 向下取整喵~
+		int xp = 300;
+		ItemStack produced = SMCreateCompat.conversionResultFor(xp, resolved, 10);
+		if (!produced.is(nugget)) {
+			helper.fail("With Create, the sweep conversion must produce experience nuggets, got " + produced);
+			return;
+		}
+		if (produced.getCount() != xp / SMCreateCompat.XP_PER_NUGGET) {
+			helper.fail("Expected " + (xp / SMCreateCompat.XP_PER_NUGGET) + " nuggets for " + xp
+					+ " xp, got " + produced.getCount());
+			return;
+		}
+
+		// 3) 产物必须真的能入桶（合并/新建页都不异常）喵~
+		SMSavedData data = new SMSavedData();
+		data.dustbins.add(new SMDustbinContainer());
+		data.addItemToDustbin(produced);
+		ItemStack stored = data.dustbins.get(0).getItem(0);
+		if (!stored.is(nugget) || stored.getCount() != produced.getCount()) {
+			helper.fail("Nuggets were not stored into the dustbin correctly, got " + stored);
+			return;
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * 经验颗粒查询「不得把未命中永久缓存」的回归测试喵~
+	 * <p>
+	 * 原版注册表在模组加载完成后固定，因此命中结果可以永久缓存；但「未命中」一旦被缓存，
+	 * 万一首次查询发生在 Create 的注册表建好之前，整个联动就会<b>永久失效且不报任何错</b>——
+	 * 属于最难排查的静默故障喵~。
+	 * </p>
+	 * <p>
+	 * 本测试连续多次调用，断言结果<b>稳定一致</b>（不会第一次拿到、第二次变成 null，
+	 * 也不会反过来）；未装 Create 时还要求每次都稳定返回 null 而不抛异常喵~。
+	 * </p>
+	 */
+	@GameTest(template = "empty")
+	public static void testNuggetLookupIsStable(GameTestHelper helper) {
+		Item first = SMCreateCompat.getExperienceNugget();
+		for (int i = 0; i < 5; i++) {
+			Item again = SMCreateCompat.getExperienceNugget();
+			if (again != first) {
+				helper.fail("getExperienceNugget() changed between calls: " + first + " vs " + again);
+				return;
+			}
+			// 布尔判据也必须与物品查询保持一致，不能一个说有一说没有喵~
+			if (SMCreateCompat.isNuggetAvailable() != (first != null)) {
+				helper.fail("isNuggetAvailable() disagrees with getExperienceNugget()");
+				return;
+			}
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * 清扫后「垃圾箱提示」必须跟随权限的回归测试喵~
+	 * <p>
+	 * 这是用户实际报上来的缺陷：把 {@code PERMISSION_LEVEL_DUSTBIN} 调高后，
+	 * 玩家明明打不开垃圾箱，却仍会收到「去垃圾箱里看看吧：[垃圾箱 0]」——
+	 * 因为命令端有 {@code hasPermission} 校验，而<b>提示端原先没有</b>，
+	 * 于是那条链接点下去毫无反应（死链接）喵~。
+	 * </p>
+	 * <p>
+	 * 本测试用真实 {@link ServerPlayer} 覆盖两条分支：普通玩家（权限 0）不得收到提示，
+	 * 而 OP（权限 2）在要求 2 级时必须收到；另断言要求 0 级时人人放行，
+	 * 因此默认配置下的行为与从前完全一致喵~。
+	 * </p>
+	 * <p>
+	 * <b>为什么不直接调用 {@code helper.makeMockServerPlayerInLevel()}</b>：那个辅助方法会走
+	 * {@code PlayerList#placeNewPlayer} 真正把玩家放进服务器，于是其它模组（如机械动力）会在
+	 * 上线流程里向这个假连接推送自己的负载，直接抛
+	 * {@code Payload create:sync_edge_group may not be sent to the client!} 而失败——实测如此喵~。
+	 * 本测试只关心权限判定，因此直接构造 {@link ServerPlayer} 实例、<b>不</b>让其上线，
+	 * 既避开第三方模组的上线副作用，也不污染玩家列表喵~。
+	 * </p>
+	 */
+	@GameTest(template = "empty")
+	public static void testDustbinPromptFollowsPermission(GameTestHelper helper) {
+		ServerLevel level = helper.getLevel();
+		MinecraftServer server = level.getServer();
+		// 直接构造，不调用 placeNewPlayer，避免第三方模组的登录流程副作用喵~
+		ServerPlayer player = new ServerPlayer(server, level,
+				new GameProfile(UUID.randomUUID(), "test-dustbin-perm"), ClientInformation.createDefault());
+		GameProfile profile = player.getGameProfile();
+		PlayerList playerList = server.getPlayerList();
+
+		// 默认配置（要求 0 级）：人人可开箱，提示照发，不改变既有行为喵~
+		if (!SweeperMaid.shouldReceiveDustbinPrompt(player, 0)) {
+			helper.fail("With required level 0 every player must receive the dustbin prompt");
+			return;
+		}
+
+		// 权限不足：非 OP 玩家在要求 1 级及以上时不得收到提示喵~
+		if (!playerList.isOp(profile)) {
+			if (SweeperMaid.shouldReceiveDustbinPrompt(player, 1)) {
+				helper.fail("A non-op player must NOT receive the dustbin prompt when level 1 is required");
+				return;
+			}
+			if (SweeperMaid.shouldReceiveDustbinPrompt(player, 4)) {
+				helper.fail("A non-op player must NOT receive the dustbin prompt when level 4 is required");
+				return;
+			}
+		}
+
+		// 提权为 OP 后必须收到提示；测完立刻撤销，避免污染同批次的其它测试喵~
+		boolean wasOp = playerList.isOp(profile);
+		playerList.op(profile);
+		int opLevel = server.getOperatorUserPermissionLevel();
+		boolean receivesAsOp = SweeperMaid.shouldReceiveDustbinPrompt(player, 2);
+		if (!wasOp) {
+			playerList.deop(profile);
+		}
+		if (opLevel >= 2 && !receivesAsOp) {
+			helper.fail("An operator (level " + opLevel + ") must receive the dustbin prompt when level 2 is required");
+			return;
+		}
+
+		// 关键断言：清扫真正调用的是 dustbinPromptRecipients，
+		// 必须能把「没权限的玩家」整条剔出去——用户报的正是这里漏了校验喵~。
+		List<ServerPlayer> all = List.of(player);
+		if (SweeperMaid.dustbinPromptRecipients(all, 0).size() != 1) {
+			helper.fail("With required level 0 the recipient list must keep every player");
+			return;
+		}
+		if (!playerList.isOp(profile) && !SweeperMaid.dustbinPromptRecipients(all, 1).isEmpty()) {
+			helper.fail("A non-op player must be filtered out of the dustbin prompt recipients at level 1");
+			return;
+		}
+		// 设为 4 级（最高）时必须谁都不提示，等价于「彻底关掉垃圾箱提示」喵~
+		if (!SweeperMaid.dustbinPromptRecipients(all, 4).isEmpty() && opLevel < 4) {
+			helper.fail("Required level 4 must prompt nobody below level 4");
+			return;
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * 直接改配置项的回归测试：模拟用户「关掉开垃圾桶权限」的真实操作喵~
+	 * <p>
+	 * 前面那条测试用的是显式传入的等级，证明不了「清扫真的会去读这条配置」。
+	 * 而用户报的现象是「我关掉了开垃圾桶的权限但还是会提示」——要钉死这个场景，
+	 * 必须真的把 {@code PERMISSION_LEVEL_DUSTBIN} 改掉，再看接收者列表是否为空喵~。
+	 * </p>
+	 * <p>
+	 * 配置项是<b>全局单例</b>，所以用 try/finally 保证无论断言是否失败都还原原值，
+	 * 绝不把改过的配置留给同批次的其它测试喵~。
+	 * </p>
+	 */
+	@GameTest(template = "empty")
+	public static void testDustbinPromptRespectsConfigValue(GameTestHelper helper) {
+		ServerLevel level = helper.getLevel();
+		MinecraftServer server = level.getServer();
+		ServerPlayer player = new ServerPlayer(server, level,
+				new GameProfile(UUID.randomUUID(), "test-dustbin-config"), ClientInformation.createDefault());
+		List<ServerPlayer> all = List.of(player);
+
+		int original = SMCommonConfig.PERMISSION_LEVEL_DUSTBIN.get();
+		try {
+			// 模拟用户操作：把开箱权限调到最高，等于「不向任何人提示」喵~
+			SMCommonConfig.PERMISSION_LEVEL_DUSTBIN.set(4);
+			if (!SweeperMaid.dustbinPromptRecipients(all, SMCommonConfig.PERMISSION_LEVEL_DUSTBIN.get()).isEmpty()) {
+				helper.fail("Setting PERMISSION_LEVEL_DUSTBIN to 4 must stop the dustbin prompt for everyone");
+				return;
+			}
+			// 调回 0：提示应恢复，确认不是「一旦关掉就再也开不回来」喵~
+			SMCommonConfig.PERMISSION_LEVEL_DUSTBIN.set(0);
+			if (SweeperMaid.dustbinPromptRecipients(all, SMCommonConfig.PERMISSION_LEVEL_DUSTBIN.get()).size() != 1) {
+				helper.fail("Setting PERMISSION_LEVEL_DUSTBIN back to 0 must restore the prompt");
+				return;
+			}
+		} finally {
+			SMCommonConfig.PERMISSION_LEVEL_DUSTBIN.set(original);
 		}
 		helper.succeed();
 	}

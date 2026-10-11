@@ -7,6 +7,8 @@
     "sweeper_maid.message.wrong_dustbin": "[扫帚女仆]：没有这个垃圾箱哦！",
     "sweeper_maid.message.overload_sweep": "[扫帚女仆]：才扫一会儿就又有 %s 堆垃圾啦？没办法只好继续扫了~",
     "sweeper_maid.message.xp_converted": "其中 %s 点经验已经转换成 %s 个附魔之瓶！",
+    "sweeper_maid.message.xp_converted_nugget": "其中 %s 点经验已经转换成 %s 个经验颗粒！",
+    "sweeper_maid.message.xp_discarded": "其中 %s 点经验已被直接清除。",
     "sweeper_maid.message.fork_welcome": "欢迎使用%s分支的清扫女仆。本版本所有问题请不要反馈给原作者，可反馈至 QQ %s 或邮箱 %s。若不想看到此声明，请使用 %s，或在服务端配置中将 %s 设为 false。",
     "sweeper_maid.message.fork_welcome_enabled": "已开启登录声明。",
     "sweeper_maid.message.fork_welcome_disabled": "已关闭登录声明，之后玩家登录时不再发送。",

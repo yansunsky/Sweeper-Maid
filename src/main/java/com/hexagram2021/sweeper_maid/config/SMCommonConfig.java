@@ -111,9 +111,27 @@ public final class SMCommonConfig {
 	 */
 	public static final ModConfigSpec.IntValue XP_PER_BOTTLE;
 	/**
+	 * 清扫收集到的经验折算成什么喵~
+	 * <p>
+	 * {@code auto}（默认）：装了机械动力就折算成经验颗粒，否则折算成附魔之瓶喵~<br>
+	 * {@code bottle}：强制折算成附魔之瓶喵~<br>
+	 * {@code nugget}：强制折算成经验颗粒（未装机械动力时退回附魔之瓶并告警）喵~<br>
+	 * {@code discard}：直接清除，不产出任何物品喵~
+	 * </p>
+	 */
+	public static final ModConfigSpec.ConfigValue<String> XP_CONVERSION_MODE;
+	/**
 	 * 经验转换提示消息模板喵~
 	 */
 	public static final ModConfigSpec.ConfigValue<String> MESSAGE_XP_CONVERTED;
+	/**
+	 * 经验折算成经验颗粒时的提示消息模板喵~
+	 */
+	public static final ModConfigSpec.ConfigValue<String> MESSAGE_XP_CONVERTED_NUGGET;
+	/**
+	 * 经验被直接清除时的提示消息模板喵~
+	 */
+	public static final ModConfigSpec.ConfigValue<String> MESSAGE_XP_DISCARDED;
 	/**
 	 * 玩家登录时是否发送 Yansunsky 分支声明喵~
 	 */
@@ -177,9 +195,9 @@ public final class SMCommonConfig {
 		DUSTBIN_NAME = BUILDER.comment("Name of dustbins. Leave empty to use the built-in localized name (follows the client language).\n垃圾箱名称前缀。留空则使用内置本地化名称（跟随游戏语言）。").define("DUSTBIN_NAME", "");
 		DUSTBIN_SLOT_CAPACITY = BUILDER.comment("Max item count that can be stacked in a single dustbin slot. Bigger values reduce the chance that the dustbin gets full.\n单个垃圾箱槽位最多可堆叠的物品数量。更大的值可降低垃圾箱被装满的概率。")
 				.defineInRange("DUSTBIN_SLOT_CAPACITY", 1000000, 1, Integer.MAX_VALUE);
-		CHAT_MESSAGE_AFTER_SWEEP = BUILDER.comment("What chat message will be sent to players after a sweep. Command will be appended to the end of the chat message. Leave empty to use the built-in localized message (follows the client language).\n清扫完成后发送给玩家的聊天消息，末尾会附加垃圾箱链接。留空则使用内置本地化消息。")
+		CHAT_MESSAGE_AFTER_SWEEP = BUILDER.comment("What chat message will be sent to players after a sweep. Command will be appended to the end of the chat message. Only sent to players whose permission level reaches PERMISSION_LEVEL_DUSTBIN, because the message is nothing but the dustbin prompt and its links. Leave empty to use the built-in localized message (follows the client language).\n清扫完成后发送给玩家的聊天消息，末尾会附加垃圾箱链接。该消息只发给权限等级达到 PERMISSION_LEVEL_DUSTBIN 的玩家（因为它本身就是垃圾箱提示与链接）。留空则使用内置本地化消息。")
 				.define("CHAT_MESSAGE_AFTER_SWEEP", "");
-		PERMISSION_LEVEL_DUSTBIN = BUILDER.comment("Permission level of a player to open the dustbin.\n打开垃圾箱所需的权限等级。").defineInRange("PERMISSION_LEVEL_DUSTBIN", 0, 0, 4);
+		PERMISSION_LEVEL_DUSTBIN = BUILDER.comment("Permission level of a player to open the dustbin. This also controls the after-sweep chat message: players below this level receive no dustbin link and no dustbin chat prompt at all. Set to 4 to prompt nobody.\n打开垃圾箱所需的权限等级。该项同时决定清扫后的聊天提示：低于该等级的玩家既不会收到垃圾箱链接，也不会收到垃圾箱提示消息。设为 4 即不再向任何人提示。").defineInRange("PERMISSION_LEVEL_DUSTBIN", 0, 0, 4);
 		PERMISSION_LEVEL_CLEAN = BUILDER.comment("Permission level of a player to clean immediately.\n立即执行清扫所需的权限等级。").defineInRange("PERMISSION_LEVEL_CLEAN", 2, 0, 4);
 		GLOBAL_ITEM_COUNT_THRESHOLD = BUILDER.comment("Global number of dropped item entities (piles) in all dimensions. If exceeded, an extra sweeping will be triggered before the scheduled interval (subject to the cooldown below). Set a huge value to disable.\n所有维度中掉落物实体（堆）的总数阈值。超过此值将触发一次额外清扫（受下方冷却限制）。设为极大值可禁用。")
 				.defineInRange("GLOBAL_ITEM_COUNT_THRESHOLD", 500, 1, Integer.MAX_VALUE);
@@ -189,8 +207,14 @@ public final class SMCommonConfig {
 				.define("MESSAGE_OVERLOAD_SWEEP", "");
 		XP_PER_BOTTLE = BUILDER.comment("Experience points needed to convert into 1 experience bottle (rounded up). A bottle gives 3~11 xp, so a loss is expected to avoid xp duplication.\n每多少点经验折算为 1 个附魔之瓶（向上取整）。附魔之瓶开启后只给 3~11 点经验，适度折损可避免刷经验。")
 				.defineInRange("XP_PER_BOTTLE", 10, 1, Integer.MAX_VALUE);
+		XP_CONVERSION_MODE = BUILDER.comment("What swept experience orbs are converted into. \"auto\": experience nuggets (Create) when Create is loaded, otherwise experience bottles. \"bottle\": always experience bottles. \"nugget\": always experience nuggets (falls back to bottles when Create is absent). \"discard\": discard the experience, producing no items at all.\n清扫收集到的经验折算成什么。\"auto\"：装了机械动力则折算成经验颗粒，否则折算成附魔之瓶；\"bottle\"：始终折算成附魔之瓶；\"nugget\"：始终折算成经验颗粒（未装机械动力时退回附魔之瓶）；\"discard\"：直接清除，不产出任何物品。")
+				.define("XP_CONVERSION_MODE", "auto");
 		MESSAGE_XP_CONVERTED = BUILDER.comment("Message appended to the sweep chat message when experience orbs were collected. \"$1\" stands for the total experience, \"$2\" stands for the number of converted bottles. Leave empty to use the built-in localized message (follows the client language).\n清扫收集到经验时追加到聊天消息的提示。\"$1\" 为收集的经验总值，\"$2\" 为转换的附魔之瓶数量。留空则使用内置本地化消息。")
 				.define("MESSAGE_XP_CONVERTED", "");
+		MESSAGE_XP_CONVERTED_NUGGET = BUILDER.comment("Message appended to the sweep chat message when experience orbs were converted into Create experience nuggets. \"$1\" stands for the total experience, \"$2\" stands for the number of nuggets. Leave empty to use the built-in localized message (follows the client language).\n清扫收集到的经验折算成机械动力经验颗粒时追加到聊天消息的提示。\"$1\" 为收集的经验总值，\"$2\" 为经验颗粒数量。留空则使用内置本地化消息。")
+				.define("MESSAGE_XP_CONVERTED_NUGGET", "");
+		MESSAGE_XP_DISCARDED = BUILDER.comment("Message appended to the sweep chat message when experience orbs were discarded without producing any item. \"$1\" stands for the total experience. Leave empty to use the built-in localized message (follows the client language).\n清扫收集到的经验被直接清除、不产出任何物品时追加到聊天消息的提示。\"$1\" 为被清除的经验总值。留空则使用内置本地化消息。")
+				.define("MESSAGE_XP_DISCARDED", "");
 		SHOW_FORK_WELCOME = BUILDER.comment("Whether to send the Yansunsky fork welcome message when a player joins. It can also be toggled with /sweepermaid welcome on|off.\n玩家登录时是否发送 Yansunsky 分支声明。也可使用 /sweepermaid welcome on|off 开关。")
 				.define("SHOW_FORK_WELCOME", true);
 		DUSTBIN_TRASH_MODE = BUILDER.comment("Dustbin auto trash mode. \"clear\" empties all dustbins, \"pack\" compresses the dustbin contents into a file under the world save and then empties them. Only used by the scheduled auto trash and the /sweepermaid trash command.\n垃圾桶自动处理模式。\"clear\" 清空所有垃圾桶；\"pack\" 将垃圾桶内容压缩存盘后清空。仅用于定时自动处理与 /sweepermaid trash 指令。")

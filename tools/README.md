@@ -101,3 +101,74 @@ NeoGradle 7.1 只认 `client` / `server` / `gameTestServer` / `data` 这几种�
 三种客户端都能正常取放物品，且服务端**零异常**。
 未装模组的客户端聊天消息与容器标题均按**它自己的语言**显示，
 不再出现 `sweeper_maid.message.xxx` 这样的裸翻译键。
+
+---
+
+## 构建入口：`tools/gw.ps1`（本机环境适配）
+
+直接用 `gradlew.bat` 在本机**跑不通**，`gw.ps1` 把这些坑都封好了。它解决的三个问题：
+
+| # | 现象 | 原因 | 处理 |
+|---|---|---|---|
+| 1 | 创建 `gradle-9.2.1-bin.zip.lck` 被拒 | DSH 沙箱只允许写工作区与少量临时目录，Gradle 默认要写 `~/.gradle` | `GRADLE_USER_HOME` 指向临时目录；`GRADLE_RO_DEP_CACHE` **只读**复用 `~/.gradle/caches` |
+| 2 | `ClassNotFoundException: GradleWorkerMain` | Gradle 用 UTF-8 写 worker 类路径 argfile，JDK 启动器按系统 ANSI 代码页（本机 936/GBK）解析它 → 中文路径「工作目录」被解码成乱码 | `GRADLE_USER_HOME` 与构建目录都放在**纯 ASCII 路径**下 |
+| 3 | 下载全部 `Connection refused` | 全局 `gradle.properties` 写死 Clash 代理 `127.0.0.1:7897`，代理没开时连直连也被带崩 | 脚本**探测端口**：代理在监听才走代理，否则直连（本机直连实测可用） |
+
+另：工作区里 `.gradle` / `src` / `run` / `docs` / `config-examples` 这几个**改动前就存在**的子目录
+缺少沙箱写入授权项（同级的 `build` / `tools` 有，**新建**目录也有），
+所以脚本默认在 ASCII 临时目录里做**镜像构建**（把 `src` 同步过去），产物再拷回 `build/libs`。
+加 `-InPlace` 可强制原地构建。
+
+```powershell
+.\tools\gw.ps1 build                 # 构建（镜像模式，推荐）
+.\tools\gw.ps1 runGameTestServer     # 跑游戏测试
+.\tools\gw.ps1 runServer             # 起专用服务端
+.\tools\gw.ps1 build -InPlace        # 原地构建
+```
+
+## 机械动力联动的验收流程（2026-10 实机）
+
+经验折算的目标物由 `XP_CONVERSION_MODE` 决定（`auto` / `bottle` / `nugget` / `discard`）。
+要**真的**验证联动生效，必须让服务端加载机械动力，光跑单测不够。
+
+**准备**：把 Create 及其前置丢进 `run/server/mods/`：
+
+| Jar | 说明 |
+|---|---|
+| `create-1.21.1-6.0.10-280-slim.jar` | 本体（slim 变体已够） |
+| `flywheel-neoforge-1.21.1-1.0.6.jar` | 客户端渲染前置（服务端也要求存在） |
+| `ponder-neoforge-1.0.87+mc1.21.1.jar` | Ponder 前置 |
+| `Registrate-MC1.21-1.3.0+67.jar` | Registrate 前置 |
+
+`run/server/server.properties` 里开 RCON（用独立端口，避开其它项目）：
+
+```properties
+enable-rcon=true
+rcon.password=sweeptest
+rcon.port=25596
+server-port=25586
+```
+
+**验收步骤**（`Rcon` 即 `python tools/rcon_cli.py 127.0.0.1 25596 sweeptest <命令>`）：
+
+```powershell
+Rcon 'sweepermaid trash'                                    # 清空垃圾桶
+Rcon 'kill @e[type=minecraft:experience_orb]'               # 清掉残留经验球
+Rcon 'execute in minecraft:overworld run summon minecraft:experience_orb 0 5 0 {Value:300}'
+Rcon 'sweepermaid clean'                                    # 触发清扫
+Rcon 'save-all flush'                                       # SavedData 默认不立刻落盘，必须存一次
+python tools\inspect_saveddata.py run\server\world\data\SweeperMaid-SavedData.dat
+```
+
+**实测结果**（1 颗经验颗粒 = 3 点经验，取自 Create `ExperienceNuggetItem#use`）：
+
+| 配置 | 投入经验 | 垃圾桶实际内容 | 结论 |
+|---|---|---|---|
+| `auto`（装了 Create） | 300 | `create:experience_nugget` × **100** | 300/3，正确 |
+| `auto` | 100 | `create:experience_nugget` × **33** | 向下取整，余 1 点丢弃，**不刷经验** |
+| `discard` | 300 | **0 格有物** | 直接清除，无任何产出 |
+| `bottle` | 100 | `minecraft:experience_bottle` × **10** | 服主强制瓶子时忽略 Create，向上取整 |
+| `nugget` | 100 | `create:experience_nugget` × **33** | 强制颗粒生效 |
+
+> **注意**：`save-all flush` 不能省。`SMSavedData` 由原版 `SavedData` 管理，只在存档周期或关服时才落盘，
+> 不 flush 的话 `.dat` 还是旧的，会误判成「清扫没生效」。

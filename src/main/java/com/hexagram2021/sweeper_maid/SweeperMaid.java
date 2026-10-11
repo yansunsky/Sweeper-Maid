@@ -3,6 +3,7 @@ package com.hexagram2021.sweeper_maid;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.hexagram2021.sweeper_maid.command.SMCommands;
+import com.hexagram2021.sweeper_maid.compat.SMCreateCompat;
 import com.hexagram2021.sweeper_maid.config.SMCommonConfig;
 import com.hexagram2021.sweeper_maid.network.SMDustbinStatePayload;
 import com.hexagram2021.sweeper_maid.network.SMDustbinSyncRequestPayload;
@@ -31,7 +32,6 @@ import net.minecraft.world.entity.ExperienceOrb;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import net.minecraft.world.level.GameRules;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.LevelChunk;
@@ -571,11 +571,62 @@ public class SweeperMaid {
 	}
 
 	/**
+	 * 判断某玩家是否应收到清扫后的垃圾箱聊天提示喵~
+	 * <p>
+	 * 清扫后的聊天消息内容就是「有什么东西丢了吗？去垃圾箱里看看吧：」加上若干
+	 * {@code [垃圾箱 N]} 可点击链接。而打开垃圾箱的命令本身受
+	 * {@code PERMISSION_LEVEL_DUSTBIN} 限制，所以把这条消息发给权限不足的玩家，
+	 * 等于发一个点不动的死链接——权限与提示必须同源喵~。
+	 * </p>
+	 * <p>
+	 * 判定所需权限由调用方传入（而不是在这里读配置），是为了让 GameTest 能在
+	 * <b>不改动全局配置</b>的前提下覆盖「有权限 / 无权限」两条分支喵~。
+	 * </p>
+	 * <p>
+	 * 可见性为 {@code public} 而非包私有：GameTest 位于 {@code sweeper_maid.gametest} 子包，
+	 * 包私有对它不可见喵~。
+	 * </p>
+	 *
+	 * @param player          目标玩家喵~
+	 * @param requiredLevel   打开垃圾箱所需的权限等级喵~
+	 * @return 应发送提示时返回 true 喵~
+	 */
+	public static boolean shouldReceiveDustbinPrompt(ServerPlayer player, int requiredLevel) {
+		// 需求等级为 0 时人人可开箱，直接放行，省掉一次权限查询喵~
+		return requiredLevel <= 0 || player.hasPermissions(requiredLevel);
+	}
+
+	/**
+	 * 从玩家列表中筛出应收到垃圾箱提示的玩家喵~
+	 * <p>
+	 * 单有 {@link #shouldReceiveDustbinPrompt} 只能证明「判定函数是对的」，
+	 * 证明不了「它真的被接到了发送路径上」——而用户报的缺陷恰恰出在后者
+	 * （命令端有校验、提示端漏了校验）。所以把筛选本身也抽成可测方法，
+	 * 让测试能对着<b>整个玩家列表</b>断言过滤结果喵~。
+	 * </p>
+	 *
+	 * @param players       候选玩家喵~
+	 * @param requiredLevel 打开垃圾箱所需的权限等级喵~
+	 * @return 应收到提示的玩家列表（保持原顺序）喵~
+	 */
+	public static List<ServerPlayer> dustbinPromptRecipients(List<ServerPlayer> players, int requiredLevel) {
+		return players.stream()
+				.filter(player -> shouldReceiveDustbinPrompt(player, requiredLevel))
+				.toList();
+	}
+
+	/**
 	 * 执行清理操作喵~
 	 * <p>
 	 * 扫描所有维度的实体，清理掉落物品和额外实体类型，并将物品存入垃圾箱喵~
 	 * 清理完成后向玩家发送统计信息和垃圾箱访问提示喵~
 	 * 检测并警告物品过载的区块喵~
+	 * </p>
+	 * <p>
+	 * <b>为什么不暴露给 GameTest 调用</b>：这是<b>全服</b>清扫，会连同其它模组测试用的实体一起
+	 * 吞掉——实测在装了机械动力的 GameTest 环境里会让它自己的存储测试因「内容缺失」而失败。
+	 * 因此经验折算链路由 {@code SMCreateCompat} 的纯函数负责单测，
+	 * 整条链路的实机验证交给真实服务端（详见 tools/README.md）喵~。
 	 * </p>
 	 *
 	 * @param server 服务器实例喵~
@@ -602,14 +653,16 @@ public class SweeperMaid {
 			killedEntities.forEach(Entity::discard);
 		});
 
-		// 将收集到的经验折算为附魔之瓶存入垃圾箱（向上取整）
+		// 将收集到的经验按配置模式折算后存入垃圾箱喵~
+		// auto：装了机械动力就折算成经验颗粒（1 颗 = 3 点，向下取整），否则折算成附魔之瓶（向上取整）喵~
+		// 折算逻辑统一走 SMCreateCompat.conversionResultFor，以保证「被测试断言的那段逻辑」
+		// 与「清扫真正执行的逻辑」是同一段，不会出现测试通过但线上走另一条分支的情况喵~
 		int xp = collectedXp.get();
-		int bottles = 0;
-		if (xp > 0) {
-			int xpPerBottle = SMCommonConfig.XP_PER_BOTTLE.get();
-			bottles = (xp + xpPerBottle - 1) / xpPerBottle;
-			ItemStack bottleStack = new ItemStack(Items.EXPERIENCE_BOTTLE, bottles);
-			instance.addItemToDustbin(bottleStack);
+		SMCreateCompat.ConversionMode xpMode = SMCreateCompat.resolveMode();
+		ItemStack xpProduce = SMCreateCompat.conversionResultFor(xp, xpMode, SMCommonConfig.XP_PER_BOTTLE.get());
+		int xpItems = xpProduce.getCount();
+		if (!xpProduce.isEmpty()) {
+			instance.addItemToDustbin(xpProduce);
 		}
 
 		server.getPlayerList().getPlayers().forEach(player -> {
@@ -627,42 +680,58 @@ public class SweeperMaid {
 
 
 		// Generate all dustbin messages and links
+		// 只发给有权打开垃圾箱的玩家：这条消息本身就是「去垃圾箱看看」+ [垃圾箱 N] 链接，
+		// 发给没权限的玩家只会得到一个点不动的死链接（命令端有 hasPermission 校验，
+		// 而提示端原先没有，属于权限与提示脱节）喵~。
+		// 权限等级取 PERMISSION_LEVEL_DUSTBIN，与 /sweepermaid dustbin 命令用的是同一项配置，
+		// 因此调到 4 就等于「不再向任何人提示」喵~。
+		int chatPermissionLevel = SMCommonConfig.PERMISSION_LEVEL_DUSTBIN.get();
 		int xpConverted = xp;
-		int bottleCount = bottles;
-		server.getPlayerList().getPlayers().forEach(player -> {
-			MutableComponent message = SMText.forPlayer(player, SMCommonConfig.CHAT_MESSAGE_AFTER_SWEEP, "sweeper_maid.message.chat_after_sweep");
+		int xpItemCount = xpItems;
+		SMCreateCompat.ConversionMode xpModeForMessage = xpMode;
+		// 走 dustbinPromptRecipients（而不是就地写 filter），让「被测试断言的筛选逻辑」
+		// 与「清扫真正执行的筛选逻辑」是同一段代码喵~
+		dustbinPromptRecipients(server.getPlayerList().getPlayers(), chatPermissionLevel)
+				.forEach(player -> {
+					MutableComponent message = SMText.forPlayer(player, SMCommonConfig.CHAT_MESSAGE_AFTER_SWEEP, "sweeper_maid.message.chat_after_sweep");
 
-			if (xpConverted > 0) {
-				message.append(Component.literal(" "))
-						.append(SMText.forPlayer(player, SMCommonConfig.MESSAGE_XP_CONVERTED, "sweeper_maid.message.xp_converted", xpConverted, bottleCount)
-								.withStyle(ChatFormatting.YELLOW));
-			}
-
-			instance.accessDustbins(dustbins -> {
-				if(dustbins.isEmpty()) {
-					return;
-				}
-				boolean first = true;
-				for (int i = 0; i < dustbins.size(); ++i) {
-					if(SMSavedData.getDustbinContainer(i).isEmpty()) {
-						continue;
+					if (xpConverted > 0) {
+						message.append(Component.literal(" "))
+								.append(switch (xpModeForMessage) {
+									case DISCARD -> SMText.forPlayer(player, SMCommonConfig.MESSAGE_XP_DISCARDED, "sweeper_maid.message.xp_discarded", xpConverted)
+											.withStyle(ChatFormatting.YELLOW);
+									case NUGGET -> SMText.forPlayer(player, SMCommonConfig.MESSAGE_XP_CONVERTED_NUGGET, "sweeper_maid.message.xp_converted_nugget", xpConverted, xpItemCount)
+											.withStyle(ChatFormatting.YELLOW);
+									default -> SMText.forPlayer(player, SMCommonConfig.MESSAGE_XP_CONVERTED, "sweeper_maid.message.xp_converted", xpConverted, xpItemCount)
+											.withStyle(ChatFormatting.YELLOW);
+								});
 					}
-					if(first) {
-						first = false;
-					} else {
-						message.append(Component.literal(", "));
-					}
-					final int dustbinIndex = i;
-					message.append(Component.literal("[")
-							.append(SMText.forPlayer(player, SMCommonConfig.DUSTBIN_NAME, "sweeper_maid.dustbin.name", dustbinIndex))
-							.append("]")
-							.withStyle(style -> style.withColor(ChatFormatting.GREEN)
-									.withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/sweepermaid dustbin " + dustbinIndex))));
-				}
-			});
 
-			player.sendSystemMessage(message);
-		});
+					instance.accessDustbins(dustbins -> {
+						if(dustbins.isEmpty()) {
+							return;
+						}
+						boolean first = true;
+						for (int i = 0; i < dustbins.size(); ++i) {
+							if(SMSavedData.getDustbinContainer(i).isEmpty()) {
+								continue;
+							}
+							if(first) {
+								first = false;
+							} else {
+								message.append(Component.literal(", "));
+							}
+							final int dustbinIndex = i;
+							message.append(Component.literal("[")
+									.append(SMText.forPlayer(player, SMCommonConfig.DUSTBIN_NAME, "sweeper_maid.dustbin.name", dustbinIndex))
+									.append("]")
+									.withStyle(style -> style.withColor(ChatFormatting.GREEN)
+											.withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/sweepermaid dustbin " + dustbinIndex))));
+						}
+					});
+
+					player.sendSystemMessage(message);
+				});
 
 		// Send overload message to players
 		int itemOverloadThreshold = SMCommonConfig.ITEM_OVERLOAD_THRESHOLD.get();

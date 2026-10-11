@@ -27,3 +27,19 @@ The client side of this mod is entirely optional. A player without the mod insta
     versionRange="${minecraft_version_range}"
     ordering="NONE"
     side="BOTH"
+
+# 机械动力（Create）是**可选**依赖：装了就把清扫收集到的经验折算成经验颗粒
+# （create:experience_nugget，1 颗 = 3 点经验，取自 Create 源码 ExperienceNuggetItem），
+# 没装则仍然折算成附魔之瓶。
+#
+# ⚠️ 必须写 type="optional"。FML 的 ModInfo 只认 "type" 字段
+#    （ModInfo.java: this.type = config.getConfigElement("type")...orElse(DependencyType.REQUIRED)），
+#    写 mandatory=false **完全无效**，依赖仍按 REQUIRED 处理 —— 实测表现为未装 Create 时
+#    服务端直接启动失败：「Mod sweeper_maid requires create 6.0.0 or above」。
+# 本模组全程通过注册名软引用该物品，不引入任何 Create 的编译期依赖，故 ordering 用 NONE。
+[[dependencies.${mod_id}]]
+    modId="create"
+    type="optional"
+    versionRange="[6.0.0,)"
+    ordering="NONE"
+    side="BOTH"

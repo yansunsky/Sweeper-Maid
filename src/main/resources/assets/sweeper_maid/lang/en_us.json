@@ -7,6 +7,8 @@
     "sweeper_maid.message.wrong_dustbin": "[Sweeper Maid]: Wrong dustbin.",
     "sweeper_maid.message.overload_sweep": "[Sweeper Maid]: Too many dropped item piles again (%s piles)? Fine, I'll sweep again!",
     "sweeper_maid.message.xp_converted": "Among them, %s experience points have been converted into %s experience bottles!",
+    "sweeper_maid.message.xp_converted_nugget": "Among them, %s experience points have been converted into %s nuggets of experience!",
+    "sweeper_maid.message.xp_discarded": "Among them, %s experience points were discarded.",
     "sweeper_maid.message.fork_welcome": "Welcome to the %s Sweeper Maid fork. Please do not report issues from this version to the original author; use QQ %s or email %s instead. To hide this notice, use %s or set %s to false in the server config.",
     "sweeper_maid.message.fork_welcome_enabled": "The fork welcome message is now enabled.",
     "sweeper_maid.message.fork_welcome_disabled": "The fork welcome message is now disabled for future logins.",
