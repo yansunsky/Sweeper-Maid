@@ -95,7 +95,7 @@ public final class SMCommonConfig {
 	 */
 	public static final ModConfigSpec.IntValue PERMISSION_LEVEL_CLEAN;
 	/**
-	 * 全局掉落物实体（堆）数量阈值，超过则提前额外清扫一次喵~
+	 * 全局「掉落物堆 + 经验球」数量阈值，超过则提前额外清扫一次喵~
 	 */
 	public static final ModConfigSpec.IntValue GLOBAL_ITEM_COUNT_THRESHOLD;
 	/**
@@ -199,7 +199,7 @@ public final class SMCommonConfig {
 				.define("CHAT_MESSAGE_AFTER_SWEEP", "");
 		PERMISSION_LEVEL_DUSTBIN = BUILDER.comment("Permission level of a player to open the dustbin. This also controls the after-sweep chat message: players below this level receive no dustbin link and no dustbin chat prompt at all. Set to 4 to prompt nobody.\n打开垃圾箱所需的权限等级。该项同时决定清扫后的聊天提示：低于该等级的玩家既不会收到垃圾箱链接，也不会收到垃圾箱提示消息。设为 4 即不再向任何人提示。").defineInRange("PERMISSION_LEVEL_DUSTBIN", 0, 0, 4);
 		PERMISSION_LEVEL_CLEAN = BUILDER.comment("Permission level of a player to clean immediately.\n立即执行清扫所需的权限等级。").defineInRange("PERMISSION_LEVEL_CLEAN", 2, 0, 4);
-		GLOBAL_ITEM_COUNT_THRESHOLD = BUILDER.comment("Global number of dropped item entities (piles) in all dimensions. If exceeded, an extra sweeping will be triggered before the scheduled interval (subject to the cooldown below). Set a huge value to disable.\n所有维度中掉落物实体（堆）的总数阈值。超过此值将触发一次额外清扫（受下方冷却限制）。设为极大值可禁用。")
+		GLOBAL_ITEM_COUNT_THRESHOLD = BUILDER.comment("Global number of dropped-item piles plus experience orbs in all dimensions. If exceeded, an extra sweeping will be triggered before the scheduled interval (subject to the cooldown below). Set a huge value to disable.\n所有维度中「掉落物堆 + 经验球」的总数阈值（经验球一律计入，不受白/黑名单影响）。超过此值将触发一次额外清扫（受下方冷却限制）。设为极大值可禁用。")
 				.defineInRange("GLOBAL_ITEM_COUNT_THRESHOLD", 500, 1, Integer.MAX_VALUE);
 		OVERLOAD_SWEEP_COOLDOWN = BUILDER.comment("Cooldown (in seconds) between two overload-triggered sweepings.\n两次过载触发清扫之间的冷却时间（秒）。")
 				.defineInRange("OVERLOAD_SWEEP_COOLDOWN", 60, 0, 86400);

@@ -43,8 +43,8 @@ DUSTBIN_SLOT_CAPACITY = 1000000
 #Message to be sent when item overload threshold is exceeded. "$1" stands for chunk X position, "$2" stands for chunk Z position, "$3" stands for item count, and "$4" stands for item id. Leave empty to use the built-in localized message (follows the client language).
 #区块掉落物过载时发送的消息。"$1" 为区块 X 坐标，"$2" 为区块 Z 坐标，"$3" 为物品数量，"$4" 为物品 ID。留空则使用内置本地化消息（跟随游戏语言）。
 OVERLOAD_MESSAGE = ""
-#Global number of dropped item entities (piles) in all dimensions. If exceeded, an extra sweeping will be triggered before the scheduled interval (subject to the cooldown below). Set a huge value to disable.
-#所有维度中掉落物实体（堆）的总数阈值。超过此值将触发一次额外清扫（受下方冷却限制）。设为极大值可禁用。
+#Global number of dropped-item piles plus experience orbs in all dimensions. If exceeded, an extra sweeping will be triggered before the scheduled interval (subject to the cooldown below). Set a huge value to disable.
+#所有维度中「掉落物堆 + 经验球」的总数阈值（经验球一律计入，不受白/黑名单影响）。超过此值将触发一次额外清扫（受下方冷却限制）。设为极大值可禁用。
 #Range: 1 ~ 2147483647
 GLOBAL_ITEM_COUNT_THRESHOLD = 500
 #Cooldown (in seconds) between two overload-triggered sweepings.

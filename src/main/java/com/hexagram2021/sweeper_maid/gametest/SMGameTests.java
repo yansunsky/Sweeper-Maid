@@ -11,6 +11,7 @@ import com.hexagram2021.sweeper_maid.network.SMPageChangePayload;
 import com.hexagram2021.sweeper_maid.save.SMDustbinContainer;
 import com.hexagram2021.sweeper_maid.save.SMDustbinSlot;
 import com.hexagram2021.sweeper_maid.save.SMSavedData;
+import com.hexagram2021.sweeper_maid.util.SMExperienceOrbs;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.gametest.framework.GameTest;
@@ -24,6 +25,9 @@ import net.minecraft.server.level.ClientInformation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.players.PlayerList;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.ExperienceOrb;
+import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
@@ -63,6 +67,7 @@ import java.util.UUID;
  *     <li>同种物品合并与满页自动新建喵~</li>
  *     <li>清扫后全局重排与动态页数喵~</li>
  *     <li>玩家单次取走数量钳制（最多 64）喵~</li>
+ *     <li>过载堆数统计口径（掉落物堆 + 经验球）与经验球真实经验值喵~</li>
  * </ul>
  * </p>
  */
@@ -246,13 +251,13 @@ public final class SMGameTests {
 	}
 
 	/**
-	 * 读取模组实例的掉落物实体计数喵~
+	 * 读取模组的「可清扫堆」计数喵~
 	 *
-	 * @return 当前掉落物实体（堆）总数喵~
+	 * @return 当前掉落物堆 + 经验球总数喵~
 	 */
-	private static int getItemEntityCount() {
+	private static int getSweepablePileCount() {
 		try {
-			Field field = SweeperMaid.instance.getClass().getDeclaredField("itemEntityCount");
+			Field field = SweeperMaid.instance.getClass().getDeclaredField("sweepablePileCount");
 			field.setAccessible(true);
 			return field.getInt(SweeperMaid.instance);
 		} catch (ReflectiveOperationException e) {
@@ -261,34 +266,61 @@ public final class SMGameTests {
 	}
 
 	/**
-	 * 掉落物实体计数测试喵~
+	 * 用「不进入世界」的探针实体精确校验进出世界事件对堆数计数的 ±1 影响喵~
+	 * <p>
+	 * 之所以敢要求<b>恰好</b> ±1：GameTest 回调与事件处理都跑在<b>服务端主线程</b>上，
+	 * 两行读改写之间不可能被其它并行测试插入；而依赖世界里的真实生成/销毁则做不到这一点喵~。
+	 * </p>
+	 *
+	 * @param probe 探针实体（只构造、不加入世界）喵~
+	 * @param level 探针实体所属维度喵~
+	 * @return 通过时返回 null，否则返回失败原因喵~
+	 */
+	@Nullable
+	private static String probePileCounterJoinLeave(Entity probe, ServerLevel level) {
+		int before = getSweepablePileCount();
+		SweeperMaid.instance.onEntityJoin(new EntityJoinLevelEvent(probe, level));
+		int afterJoin = getSweepablePileCount();
+		if (afterJoin != before + 1) {
+			return "EntityJoinLevelEvent should increase the pile counter by exactly 1, but " + before + " -> " + afterJoin;
+		}
+		SweeperMaid.instance.onEntityLeave(new EntityLeaveLevelEvent(probe, level));
+		int afterLeave = getSweepablePileCount();
+		if (afterLeave != before) {
+			return "EntityLeaveLevelEvent should decrease the pile counter by exactly 1, but " + afterJoin + " -> " + afterLeave;
+		}
+		return null;
+	}
+
+	/**
+	 * 掉落物堆计数测试喵~
 	 * <p>
 	 * 分两段，分别覆盖「集成」与「精确」两个口径喵~：
 	 * </p>
 	 * <p>
 	 * <b>第一段（集成）</b>：真的往世界里生成 2 个掉落物，计数必须至少 +2。
-	 * 只断言「不低于 +2」而<b>不</b>断言归零：这个计数器统计的是<b>全服</b>掉落物堆数，
+	 * 只断言「不低于 +2」而<b>不</b>断言归零：这个计数器统计的是<b>全服</b>堆数，
 	 * 而 GameTest 会并行跑其它模组的测试。装了机械动力时它自带 64 个测试会同时生成/销毁掉落物，
 	 * 绝对计数永远不可能稳定归零（旧断言 `== 0` 实测读到 11 而误报失败）喵~。
 	 * </p>
 	 * <p>
-	 * <b>第二段（精确）</b>：直接调用模组的进出世界事件处理器，断言计数<b>恰好</b> ±1。
+	 * <b>第二段（精确）</b>：走 {@link #probePileCounterJoinLeave}，断言计数<b>恰好</b> ±1。
 	 * 这一段之所以能要求精确值，是因为 GameTest 回调与事件处理都跑在<b>服务端主线程</b>上，
-	 * 两行读改写之间不可能被其它测试插入；而依赖世界里的真实生成/销毁则做不到这一点喵~。
+	 * 两行读改写之间不可能被其它测试并行插入；而依赖世界里的真实生成/销毁则做不到这一点喵~。
 	 * </p>
 	 */
 	@GameTest(template = "empty", timeoutTicks = 300)
 	public static void testItemEntityCounter(GameTestHelper helper) {
-		final int baseline = getItemEntityCount();
+		final int baseline = getSweepablePileCount();
 		Vec3 pos = helper.absoluteVec(new Vec3(0.5, 2.0, 0.5));
 		ItemEntity first = helper.spawnItem(Items.DIAMOND, pos);
 		ItemEntity second = helper.spawnItem(Items.EMERALD, pos);
 
 		helper.runAfterDelay(2, () -> {
 			// 第一段：集成口径——只要求「至少 +2」，容忍并发测试带来的其它增减喵~
-			int afterSpawn = getItemEntityCount();
+			int afterSpawn = getSweepablePileCount();
 			if (afterSpawn < baseline + 2) {
-				helper.fail("Item entity counter did not increase by at least 2 after spawning (baseline="
+				helper.fail("Pile counter did not increase by at least 2 after spawning items (baseline="
 						+ baseline + ", now=" + afterSpawn + ")");
 				return;
 			}
@@ -298,23 +330,135 @@ public final class SMGameTests {
 			// 第二段：精确口径——用不进入世界的探针实体，手动触发模组的事件处理器喵~
 			ServerLevel level = helper.getLevel();
 			ItemEntity probe = new ItemEntity(level, pos.x, pos.y, pos.z, new ItemStack(Items.DIAMOND));
-			int before = getItemEntityCount();
-			SweeperMaid.instance.onEntityJoin(new EntityJoinLevelEvent(probe, level));
-			int afterJoin = getItemEntityCount();
-			if (afterJoin != before + 1) {
-				helper.fail("EntityJoinLevelEvent should increase the counter by exactly 1, but "
-						+ before + " -> " + afterJoin);
-				return;
-			}
-			SweeperMaid.instance.onEntityLeave(new EntityLeaveLevelEvent(probe, level));
-			int afterLeave = getItemEntityCount();
-			if (afterLeave != before) {
-				helper.fail("EntityLeaveLevelEvent should decrease the counter by exactly 1, but "
-						+ afterJoin + " -> " + afterLeave);
+			String error = probePileCounterJoinLeave(probe, level);
+			if (error != null) {
+				helper.fail(error);
 				return;
 			}
 			helper.succeed();
 		});
+	}
+
+	/**
+	 * 「可清扫堆」判定口径测试喵~
+	 * <p>
+	 * 这是本次缺陷（经验球不计入过载阈值）的正面钉子：判定必须同时认掉落物堆与经验球，
+	 * 又不能把无关实体算进来。断言的是<b>生产代码真正调用的那两个函数</b>，
+	 * 而不是在测试里另写一份 {@code instanceof} 自证喵~。
+	 * </p>
+	 */
+	@GameTest(template = "empty")
+	public static void testSweepablePilePredicate(GameTestHelper helper) {
+		ServerLevel level = helper.getLevel();
+		ItemEntity item = new ItemEntity(level, 0.5D, 2.0D, 0.5D, new ItemStack(Items.DIAMOND));
+		ExperienceOrb orb = new ExperienceOrb(level, 0.5D, 2.0D, 0.5D, 3);
+		ArmorStand bystander = new ArmorStand(level, 0.5D, 2.0D, 0.5D);
+
+		if (!SweeperMaid.isSweepablePile(item)) {
+			helper.fail("A dropped-item pile must count as a sweepable pile");
+			return;
+		}
+		if (!SweeperMaid.isSweepablePile(orb)) {
+			helper.fail("An experience orb must count as a sweepable pile - this is the overload-threshold bug");
+			return;
+		}
+		if (SweeperMaid.isSweepablePile(bystander)) {
+			helper.fail("An armor stand must not count as a sweepable pile");
+			return;
+		}
+		int counted = SweeperMaid.countSweepablePiles(List.of(item, orb, bystander));
+		if (counted != 2) {
+			helper.fail("countSweepablePiles should return 2 for (item, orb, armor stand), got " + counted);
+			return;
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * 经验球计数测试喵~
+	 * <p>
+	 * 与 {@link #testItemEntityCounter} 对称：经验球同样必须计入全局堆数，否则一地经验球
+	 * 永远不会触发过载清扫、只能干等到下一次定时清扫——这正是用户报上来的缺陷喵~。
+	 * </p>
+	 * <p>
+	 * 第一段用<b>真实入世界</b>的球，并在同一次调用里完成「读—加—读」：
+	 * {@code addFreshEntity} 同步发出进世界事件，所以不必依赖 2 tick 的容忍窗口，
+	 * 可以直接要求恰好 +1（并发测试没有插空的余地）喵~。
+	 * </p>
+	 */
+	@GameTest(template = "empty")
+	public static void testExperienceOrbPileCounter(GameTestHelper helper) {
+		ServerLevel level = helper.getLevel();
+		Vec3 pos = helper.absoluteVec(new Vec3(0.5, 2.0, 0.5));
+
+		ExperienceOrb orb = new ExperienceOrb(level, pos.x, pos.y, pos.z, 3);
+		int before = getSweepablePileCount();
+		level.addFreshEntity(orb);
+		int afterSpawn = getSweepablePileCount();
+		if (afterSpawn != before + 1) {
+			helper.fail("Spawning a real experience orb should raise the pile counter by exactly 1, but "
+					+ before + " -> " + afterSpawn);
+			return;
+		}
+
+		// 第二段：不进入世界的探针实体，补上「离开世界」方向——真实移除由区块管理器延迟处理，
+		// 在这里同步断言会误报喵~
+		ExperienceOrb probe = new ExperienceOrb(level, pos.x, pos.y + 2.0D, pos.z, 3);
+		String error = probePileCounterJoinLeave(probe, level);
+		if (error != null) {
+			helper.fail(error);
+			return;
+		}
+
+		orb.discard();
+		helper.succeed();
+	}
+
+	/**
+	 * 经验球真实经验值测试喵~
+	 * <p>
+	 * 覆盖本次缺陷的第二处：原版经验球实体可以是「多颗同面值球合并」的产物（私有字段
+	 * {@code count}），拾取时每碰撞一次给 {@code value} 点、{@code count--}，减到 0 才消失，
+	 * 因此真实经验是 {@code value × count}；只读 {@code getValue()} 会把合并进去的那部分抹掉喵~。
+	 * </p>
+	 * <p>
+	 * 这里用原版自己的存档通道（{@code saveWithoutId} / {@code load}）构造「已合并」状态：
+	 * 既不必为了碰私有字段而引入 AT / Mixin，又顺带钉住「{@code Count} 这个存档键确实存在」——
+	 * 万一上游改了存档格式，会先炸在这个测试上，而不是在服里悄悄少算经验喵~。
+	 * </p>
+	 */
+	@GameTest(template = "empty")
+	public static void testExperienceOrbTotalValue(GameTestHelper helper) {
+		ServerLevel level = helper.getLevel();
+		ExperienceOrb orb = new ExperienceOrb(level, 0.5D, 2.0D, 0.5D, 3);
+
+		if (SMExperienceOrbs.orbCount(orb) != 1) {
+			helper.fail("A freshly created experience orb should hold exactly 1 orb, got " + SMExperienceOrbs.orbCount(orb));
+			return;
+		}
+		if (SMExperienceOrbs.totalValue(orb) != 3) {
+			helper.fail("A fresh value=3 orb should be worth 3 xp, got " + SMExperienceOrbs.totalValue(orb));
+			return;
+		}
+
+		CompoundTag tag = orb.saveWithoutId(new CompoundTag());
+		if (!tag.contains("Count")) {
+			helper.fail("Vanilla ExperienceOrb no longer serializes a Count tag - the merged orb count cannot be read");
+			return;
+		}
+		tag.putInt("Count", 7);
+		orb.load(tag);
+
+		if (SMExperienceOrbs.orbCount(orb) != 7) {
+			helper.fail("orbCount should read back 7 after loading Count=7, got " + SMExperienceOrbs.orbCount(orb));
+			return;
+		}
+		int total = SMExperienceOrbs.totalValue(orb);
+		if (total != 21) {
+			helper.fail("A merged orb (value=3, count=7) must be worth 21 xp, got " + total);
+			return;
+		}
+		helper.succeed();
 	}
 
 	/**

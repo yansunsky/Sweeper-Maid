@@ -9,6 +9,7 @@ import com.hexagram2021.sweeper_maid.network.SMDustbinStatePayload;
 import com.hexagram2021.sweeper_maid.network.SMDustbinSyncRequestPayload;
 import com.hexagram2021.sweeper_maid.network.SMPageChangePayload;
 import com.hexagram2021.sweeper_maid.save.SMSavedData;
+import com.hexagram2021.sweeper_maid.util.SMExperienceOrbs;
 import com.hexagram2021.sweeper_maid.util.SMText;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
@@ -155,9 +156,14 @@ public class SweeperMaid {
 	 */
 	private boolean firstTick = true;
 	/**
-	 * 当前所有维度中掉落物实体（堆）的总数，随实体进出世界实时增减喵~
+	 * 当前所有维度中「可清扫堆」的总数，随实体进出世界实时增减喵~
+	 * <p>
+	 * 统计对象由 {@link #isSweepablePile} 定义：掉落物堆 + 经验球。
+	 * 字段名不再叫 {@code itemEntityCount} —— 旧名字只提「物品」，而经验球漏统计的缺陷
+	 * 恰恰就是从「以为只有物品才算一堆」这个误解里长出来的喵~。
+	 * </p>
 	 */
-	private int itemEntityCount = 0;
+	private int sweepablePileCount = 0;
 	/**
 	 * 上次因过载触发额外清扫的服务器 tick 数（负数表示从未触发）喵~
 	 */
@@ -202,7 +208,7 @@ public class SweeperMaid {
 			return;
 		}
 		if (server.getTickCount() % RECOUNT_INTERVAL == 0) {
-			this.recountItemEntities(server);
+			this.recountSweepablePiles(server);
 		}
 		this.checkOverloadSweep(server);
 		this.prepareAndSendCountdownMessage(server);
@@ -238,54 +244,98 @@ public class SweeperMaid {
 	private static final int RECOUNT_INTERVAL = 100;
 
 	/**
-	 * 重新统计所有维度的掉落物实体总数喵~
+	 * 判断实体是否算作「一堆可清扫的东西」喵~
+	 * <p>
+	 * 掉落物堆（{@link ItemEntity}）与经验球（{@link ExperienceOrb}）都算：两者都会被
+	 * {@link #doSweeping} 直接清掉，也都是「一堆东西赖在地上」的卡顿来源喵~。
+	 * </p>
+	 * <p>
+	 * 抽成单一定义、而不是在每个调用点各写一遍 {@code instanceof}：本模组正是这样漏掉经验球的
+	 * ——全量校正、进世界、离开世界三处都只判 {@code ItemEntity}，于是经验球对
+	 * {@code GLOBAL_ITEM_COUNT_THRESHOLD} 完全不可见，一地几千颗球也不会触发过载清扫，
+	 * 只能干等下一次定时清扫喵~。
+	 * </p>
+	 * <p>
+	 * 可见性为 {@code public} 而非包私有：GameTest 位于 {@code sweeper_maid.gametest} 子包，
+	 * 包私有对它不可见喵~。
+	 * </p>
+	 *
+	 * @param entity 待判定的实体，可为 null 喵~
+	 * @return 计作一堆时返回 true 喵~
+	 */
+	public static boolean isSweepablePile(@Nullable Entity entity) {
+		return entity instanceof ItemEntity || entity instanceof ExperienceOrb;
+	}
+
+	/**
+	 * 统计一批实体里「可清扫堆」的数量喵~
+	 * <p>
+	 * {@link #recountSweepablePiles} 走的就是这个函数，因此 GameTest 断言的是
+	 * 「真正被用到的那个统计口径」，而不是另写一份等价逻辑自证喵~。
+	 * </p>
+	 *
+	 * @param entities 候选实体喵~
+	 * @return 其中可清扫堆的数量喵~
+	 */
+	public static int countSweepablePiles(Iterable<? extends Entity> entities) {
+		int count = 0;
+		for (Entity entity : entities) {
+			if (isSweepablePile(entity)) {
+				++count;
+			}
+		}
+		return count;
+	}
+
+	/**
+	 * 重新统计所有维度的「可清扫堆」总数喵~
 	 * <p>
 	 * 事件计数偶尔可能因实体追踪状态变化失真（如区块卸载），定时全量校正保证计数准确喵~
+	 * </p>
+	 * <p>
+	 * 这里不自己再写一遍 {@code instanceof}，而是调用 {@link #countSweepablePiles}：
+	 * 「什么算一堆」必须只有一处定义，否则「校正」与「增减」随时可能各判一套标准喵~。
 	 * </p>
 	 *
 	 * @param server 服务器实例喵~
 	 */
-	private void recountItemEntities(MinecraftServer server) {
+	private void recountSweepablePiles(MinecraftServer server) {
 		int count = 0;
 		for (ServerLevel level : server.getAllLevels()) {
-			for (Entity entity : level.getEntities().getAll()) {
-				if (entity instanceof ItemEntity) {
-					++count;
-				}
-			}
+			count += countSweepablePiles(level.getEntities().getAll());
 		}
-		this.itemEntityCount = count;
+		this.sweepablePileCount = count;
 	}
 
 	/**
-	 * 掉落物实体进入世界时计数喵~
+	 * 可清扫堆（掉落物堆 / 经验球）进入世界时计数喵~
 	 *
 	 * @param event 实体进入世界事件喵~
 	 */
 	@SubscribeEvent
 	public void onEntityJoin(EntityJoinLevelEvent event) {
-		if (event.getEntity() instanceof ItemEntity) {
-			++this.itemEntityCount;
+		if (isSweepablePile(event.getEntity())) {
+			++this.sweepablePileCount;
 		}
 	}
 
 	/**
-	 * 掉落物实体离开世界时计数喵~
+	 * 可清扫堆（掉落物堆 / 经验球）离开世界时计数喵~
 	 *
 	 * @param event 实体离开世界事件喵~
 	 */
 	@SubscribeEvent
 	public void onEntityLeave(EntityLeaveLevelEvent event) {
-		if (event.getEntity() instanceof ItemEntity) {
-			--this.itemEntityCount;
+		if (isSweepablePile(event.getEntity())) {
+			--this.sweepablePileCount;
 		}
 	}
 
 	/**
 	 * 检查全局掉落物是否过载喵~
 	 * <p>
-	 * 当所有维度的掉落物实体（堆）总数超过配置阈值，且距上次过载清扫已超过冷却时间时，
-	 * 立即标记一次清扫，并将定时倒计时重置喵~
+	 * 当所有维度的「可清扫堆」（掉落物堆 + 经验球）总数超过配置阈值，且距上次过载清扫
+	 * 已超过冷却时间时，立即标记一次清扫，并将定时倒计时重置喵~
 	 * </p>
 	 *
 	 * @param server 服务器实例喵~
@@ -295,7 +345,7 @@ public class SweeperMaid {
 		int cooldownTicks = SMCommonConfig.OVERLOAD_SWEEP_COOLDOWN.get() * SharedConstants.TICKS_PER_SECOND;
 		long tick = server.getTickCount();
 		boolean cooldownPassed = this.lastOverloadSweepTick < 0 || tick - this.lastOverloadSweepTick >= cooldownTicks;
-		if (this.itemEntityCount > threshold && !this.toSweep && cooldownPassed) {
+		if (this.sweepablePileCount > threshold && !this.toSweep && cooldownPassed) {
 			this.toSweep = true;
 			this.lastSweepWasOverload = true;
 			this.lastOverloadSweepTick = tick;
@@ -655,6 +705,7 @@ public class SweeperMaid {
 
 		// 将收集到的经验按配置模式折算后存入垃圾箱喵~
 		// auto：装了机械动力就折算成经验颗粒（1 颗 = 3 点，向下取整），否则折算成附魔之瓶（向上取整）喵~
+		// collectedXp 已按经验球的真实价值累加（合并球按 value × count 计，见 SMExperienceOrbs）喵~
 		// 折算逻辑统一走 SMCreateCompat.conversionResultFor，以保证「被测试断言的那段逻辑」
 		// 与「清扫真正执行的逻辑」是同一段，不会出现测试通过但线上走另一条分支的情况喵~
 		int xp = collectedXp.get();
@@ -785,7 +836,10 @@ public class SweeperMaid {
 		} else if (entity instanceof ExperienceOrb experienceOrb) {
 			// 经验球全部收集（不受物品白/黑名单影响），计入过载堆数
 			if (!killedEntities.contains(entity)) {
-				collectedXp.addAndGet(experienceOrb.getValue());
+				// 用 totalValue 而不是 getValue：一颗经验球实体可能是多颗同面值球合并来的
+				// （真实经验 = value × count，见 SMExperienceOrbs），只读 value 会把合并进去的
+				// 那部分经验静默抹掉——小球（面值 1、3）最易合并，恰好也是堆积场景里的主力喵~
+				collectedXp.addAndGet(SMExperienceOrbs.totalValue(experienceOrb));
 				sweptItemPiles.incrementAndGet();
 				killedEntities.add(experienceOrb);
 			}

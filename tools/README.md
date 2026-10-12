@@ -172,3 +172,68 @@ python tools\inspect_saveddata.py run\server\world\data\SweeperMaid-SavedData.da
 
 > **注意**：`save-all flush` 不能省。`SMSavedData` 由原版 `SavedData` 管理，只在存档周期或关服时才落盘，
 > 不 flush 的话 `.dat` 还是旧的，会误判成「清扫没生效」。
+
+## 经验球计数与记账的验收流程（本轮修复）
+
+本轮修的两处缺陷都与经验球有关，且都能用**一条命令造出「单实体多球」的极端用例**：
+`/summon` 的 NBT 既能设 `Value`（单颗面值），也能设 `Count`（这颗实体代表几颗球）——
+`Count` 就是原版存档键，所以一条命令足以造出「看起来 1 颗、实际 600 点经验」的球。
+（`Rcon` 的写法同上节；`rcon_cli.py` 支持一次传多条命令，也支持从 stdin 读，见其文件头。）
+
+**准备**：与上节相同的 Create 服务端，并把配置调到便于触发：
+
+```toml
+# config/sweeper_maid-common.toml
+GLOBAL_ITEM_COUNT_THRESHOLD = 5      # 用小样本就能触发过载清扫
+XP_CONVERSION_MODE = "nugget"
+```
+
+**A. `value × count` 记账（本轮修复的「少算经验」）**
+
+```powershell
+Rcon 'sweepermaid trash'
+Rcon 'kill @e[type=minecraft:experience_orb]'
+Rcon 'execute in minecraft:overworld run summon minecraft:experience_orb 100 5 100 {Value:1,Count:600}'
+Rcon 'sweepermaid clean'
+Rcon 'save-all flush'
+python tools\inspect_saveddata.py run\server\world\data\SweeperMaid-SavedData.dat
+```
+
+| | 修复前（错误） | 修复后（期望） |
+|---|---|---|
+| 记账口径 | 只读 `getValue()` → 1 点 | `value × count` → 600 点 |
+| 垃圾桶内容 | 0 个经验颗粒 | **200 个经验颗粒** |
+
+**B. 过载阈值把经验球算进去（本轮修复的「只认掉落物」）**
+
+```powershell
+Rcon 'kill @e[type=minecraft:item]'
+1..6 | ForEach-Object { Rcon 'execute in minecraft:overworld run summon minecraft:experience_orb 100 5 100 {Value:1}' }
+```
+
+期望：约 5 秒内（下一次全量校正之后）出现「才扫一会儿就又有 N 堆垃圾啦」的过载清扫提示。
+修复前无论堆多少颗球都不会触发——阈值只认掉落物堆。
+
+> **为什么要先 `kill @e[type=minecraft:item]`**：过载阈值同时统计掉落物堆与经验球，
+> 不清掉场地里的掉落物，就分不清是哪一类触发了清扫。
+>
+> **为什么用 `Count` 而不是生成 600 颗球**：`Count` 是原版合并球用的存档字段，
+> 一条命令就能构造出「合并过的球」，而 B 段要的恰好是「多颗球实体」——两个用例各自需要哪种形态，
+> 这里都写得出来，正是本轮修复的关键差别。
+
+**实测结果**（2026-10，真实专用服务器 + Create 6.0.10，`GLOBAL_ITEM_COUNT_THRESHOLD = 5`、`XP_CONVERSION_MODE = nugget`）：
+
+| 阶段 | 构造 | 垃圾桶实际内容 | 结论 |
+|---|---|---|---|
+| A（对照） | 3 颗球 | 0 格有物 | 未过阈值不触发，不会误伤 |
+| B | 再加 3 颗 = 6 堆 > 5 | `create:experience_nugget` × 2 | **经验球本身**触发了过载清扫（6 点 / 3） |
+| C | `{Value:1,Count:600}` + `clean` | `create:experience_nugget` × 200 | 按 `1 × 600 = 600` 点记账 |
+| D（反证） | `{Value:1}`（不带 `Count`）+ `clean` | 0 格有物 | 1 点经验 → 向下取整 0 颗，反证 C 的 200 来自 `count` |
+
+> **踩坑（本轮实测真的踩到了）**：`sweepermaid clean` 只是把「下一刻清扫」置位，**它自己不执行清扫**。
+> 紧接着发 `save-all flush` 会在清扫真正发生**之前**落盘，读到的存档还是旧内容，
+> 看起来就像「修了但没生效」——C 段第一次正是这样误判的。`clean` 之后务必等几秒再 flush，
+> 过载触发的那次清扫同理（它是下一次 tick 干的活）。
+>
+> **为什么 A 段不能省**：只有「6 颗球被扫了」证明不了是**阈值**触发的清扫——先做 3 颗的对照，
+> 两段合起来才排除了「别的什么触发了清扫」这一解释。
