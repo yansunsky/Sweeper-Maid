@@ -6,6 +6,8 @@ import com.hexagram2021.sweeper_maid.save.SMDustbinContainer;
 import com.hexagram2021.sweeper_maid.save.SMDustbinSlot;
 import com.hexagram2021.sweeper_maid.save.SMSavedData;
 import com.hexagram2021.sweeper_maid.util.SMText;
+import net.minecraft.ChatFormatting;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
@@ -17,9 +19,13 @@ import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.inventory.Slot;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.component.ItemLore;
 
 import javax.annotation.Nullable;
+import java.util.List;
 
 /**
  * 垃圾箱菜单喵~
@@ -28,18 +34,44 @@ import javax.annotation.Nullable;
  * {@link MenuType}，而是复用原版 {@link MenuType#GENERIC_9x6} 喵~：
  * <ul>
  *     <li><b>菜单类型必须存在于原版注册表</b>：自定义 {@code MenuType} 会被 NeoForge 视为「同步注册表」，
- *     未装本模组的客户端（无论是纯原版还是只装了 NeoForge）在连接阶段就会因为注册表键无法解析而断开，
- *     或者打开界面时抛「No value with id」异常喵~</li>
- *     <li>槽位数量与坐标与原版 6 行大箱子完全一致，所以未装模组的客户端照样能查看 / 取出 / 放入当前页，
- *     只是没有翻页按钮喵~</li>
+ * 未装本模组的客户端（无论是纯原版还是只装了 NeoForge）在连接阶段就会因为注册表键无法解析而断开喵~</li>
+ *     <li>槽位数量与坐标与原版 6 行大箱子完全一致，所以未装模组的客户端照样能查看 / 取出 / 放入当前页喵~</li>
  *     <li>当前页与总页数<b>不再</b>走数据槽（{@code DataSlot}）：原版大箱子菜单的数据槽数量为 0，
- *     未装模组的客户端收到数据槽同步包会下标越界崩溃喵~。改由
+ * 未装模组的客户端收到数据槽同步包会下标越界崩溃喵~。改由
  *     {@link SMDustbinStatePayload} 这条可选网络通道承载，翻页状态始终以服务端为准喵~</li>
  *     <li>容器槽位使用 {@link SMDustbinSlot}，支持大堆叠并限制单次取走数量喵~</li>
  * </ul>
  * </p>
+ * <p>
+ * <b>翻页按钮是服务端合成的假物品</b>（见 {@link #buttonStackFor}）：界面最下面一行，
+ * 也就是第 {@link SMDustbinContainer#SIZE} ~ 53 号槽位，固定放按钮而不是实物喵~。
+ * 这样未装模组的玩家也能翻页——他们收到的就是普通箱子界面上几个改过名的染色玻璃板，
+ * 点一下是一次普通点击，服务端在 {@link #clicked} 里认出来并换页，客户端什么都不用做喵~。
+ * </p>
+ * <p>
+ * <b>为什么按钮必须占满整行、内容只能 45 格</b>：原版客户端固定认为 6 行箱子有 54 个格子，
+ * 服务端全量同步时按索引逐个塞、不做长度校验。若服务端少发 9 个槽位，未装模组的客户端会把
+ * 玩家背包的物品错位塞进箱子的空格里喵~。
+ * </p>
  */
 public class DustbinMenu extends AbstractContainerMenu implements Container {
+	/**
+	 * 上一页按钮所在的槽位（最下面一行的第 1 格）喵~
+	 */
+	private static final int SLOT_PREVIOUS = SMDustbinContainer.SIZE;
+	/**
+	 * 页码按钮所在的槽位（最下面一行的正中间）喵~
+	 */
+	private static final int SLOT_PAGE_INFO = SMDustbinContainer.SIZE + 4;
+	/**
+	 * 下一页按钮所在的槽位（最下面一行的最后 1 格）喵~
+	 */
+	private static final int SLOT_NEXT = SMDustbinContainer.SIZE + 8;
+	/**
+	 * 箱子区域的槽位总数（45 个内容 + 9 个按钮）喵~
+	 */
+	private static final int CHEST_SLOTS = SMDustbinContainer.SIZE + SMDustbinContainer.BUTTON_SLOTS;
+
 	/**
 	 * 当前页容器（委托目标，翻页时切换引用）喵~
 	 */
@@ -55,7 +87,7 @@ public class DustbinMenu extends AbstractContainerMenu implements Container {
 	/**
 	 * 是否为客户端侧菜单喵~
 	 * <p>
-	 * 客户端菜单只用于渲染与本地点击预测，绝不访问 {@link SMSavedData}（客户端没有存档数据）喵~
+	 * 客户端菜单只用于渲染，绝不访问 {@link SMSavedData}（客户端没有存档数据）喵~
 	 * </p>
 	 */
 	private final boolean clientSide;
@@ -67,6 +99,16 @@ public class DustbinMenu extends AbstractContainerMenu implements Container {
 
 	private int lastSyncedPage = -1;
 	private int lastSyncedPageCount = -1;
+
+	/**
+	 * 服务端合成按钮物品的缓存（每 tick 的同步会读 9 次，没必要反复新建对象）喵~
+	 */
+	private ItemStack[] cachedButtons;
+	/**
+	 * 缓存对应的页码 / 页数，任一变化即失效喵~
+	 */
+	private int cachedPage = -1;
+	private int cachedPageCount = -1;
 
 	/**
 	 * 服务端构造方法喵~
@@ -109,9 +151,17 @@ public class DustbinMenu extends AbstractContainerMenu implements Container {
 		this.lastSyncedPageCount = this.pageCount;
 		dustbin.startOpen(playerInventory.player);
 
-		for (int j = 0; j < 6; ++j) {
-			for (int k = 0; k < 9; ++k) {
-				this.addSlot(new SMDustbinSlot(this, k + j * 9, 8 + k * 18, 18 + j * 18));
+		// 前 45 格：真正的垃圾箱内容；后 9 格：翻页按钮（虚拟槽位）喵~
+		for (int row = 0; row < 6; ++row) {
+			for (int column = 0; column < 9; ++column) {
+				int index = column + row * 9;
+				int x = 8 + column * 18;
+				int y = 18 + row * 18;
+				if (index < SMDustbinContainer.SIZE) {
+					this.addSlot(new SMDustbinSlot(this, index, x, y));
+				} else {
+					this.addSlot(new SMDustbinButtonSlot(this, index, x, y));
+				}
 			}
 		}
 
@@ -161,10 +211,108 @@ public class DustbinMenu extends AbstractContainerMenu implements Container {
 	}
 
 	/**
+	 * 判断某个槽位是不是翻页按钮（而不是真正的垃圾箱内容）喵~
+	 *
+	 * @param index 槽位索引喵~
+	 * @return 属于按钮行时返回 true 喵~
+	 */
+	public static boolean isButtonSlot(int index) {
+		return index >= SMDustbinContainer.SIZE && index < CHEST_SLOTS;
+	}
+
+	/**
+	 * 生成某个按钮槽位要显示的物品喵~
+	 * <p>
+	 * 只用原版数据组件（{@code CUSTOM_NAME} / {@code LORE}），所以<b>未装模组的客户端也能
+	 * 正常显示</b>按钮名称与提示——它们看到的只是几个改过名的染色玻璃板喵~。
+	 * </p>
+	 *
+	 * @param index 槽位索引喵~
+	 * @return 该槽位的按钮物品；非按钮槽位返回空喵~
+	 */
+	private ItemStack buttonStackFor(int index) {
+		boolean hasPrevious = this.currentPage > 0;
+		boolean hasNext = this.currentPage < this.pageCount - 1;
+		return switch (index) {
+			case SLOT_PREVIOUS -> buttonStack(
+					hasPrevious ? Items.LIME_STAINED_GLASS_PANE : Items.GRAY_STAINED_GLASS_PANE,
+					"sweeper_maid.dustbin.previous_page",
+					"Previous page",
+					hasPrevious);
+			case SLOT_NEXT -> buttonStack(
+					hasNext ? Items.LIGHT_BLUE_STAINED_GLASS_PANE : Items.GRAY_STAINED_GLASS_PANE,
+					"sweeper_maid.dustbin.next_page",
+					"Next page",
+					hasNext);
+			case SLOT_PAGE_INFO -> pageInfoStack();
+			default -> ItemStack.EMPTY;
+		};
+	}
+
+	/**
+	 * 构造一个翻页按钮物品喵~
+	 *
+	 * @param item     玻璃板物品喵~
+	 * @param langKey  名称翻译键喵~
+	 * @param fallback 未装模组客户端显示的字面名称喵~
+	 * @param enabled  当前页码下该按钮是否可用喵~
+	 * @return 按钮物品喵~
+	 */
+	private static ItemStack buttonStack(Item item, String langKey, String fallback, boolean enabled) {
+		ItemStack stack = new ItemStack(item);
+		stack.set(DataComponents.CUSTOM_NAME, Component.translatableWithFallback(langKey, fallback)
+				.withStyle(enabled ? ChatFormatting.GREEN : ChatFormatting.GRAY));
+		stack.set(DataComponents.LORE, new ItemLore(List.of(
+				Component.translatableWithFallback(
+								enabled ? "sweeper_maid.dustbin.page_hint" : "sweeper_maid.dustbin.page_blocked",
+								enabled ? "Click to turn the page" : "There are no more pages")
+						.withStyle(ChatFormatting.DARK_PURPLE))));
+		return stack;
+	}
+
+	/**
+	 * 构造页码物品喵~
+	 *
+	 * @return 显示「当前页 / 总页数」的纸喵~
+	 */
+	private ItemStack pageInfoStack() {
+		ItemStack stack = new ItemStack(Items.PAPER);
+		stack.set(DataComponents.CUSTOM_NAME,
+				Component.translatableWithFallback("sweeper_maid.dustbin.page_info", "%s / %s",
+						this.currentPage + 1, this.pageCount).withStyle(ChatFormatting.WHITE));
+		stack.set(DataComponents.LORE, new ItemLore(List.of(
+				Component.translatableWithFallback("sweeper_maid.dustbin.page_info_hint", "Current page")
+						.withStyle(ChatFormatting.DARK_PURPLE))));
+		return stack;
+	}
+
+	/**
+	 * 取按钮物品（带缓存）喵~
+	 * <p>
+	 * 服务端每 tick 的 {@code broadcastChanges} 会把 9 个按钮各读一次；页码没变时直接复用上次
+	 * 合成的结果，避免无意义地反复新建组件对象喵~。
+	 * </p>
+	 *
+	 * @param index 槽位索引喵~
+	 * @return 该槽位的按钮物品喵~
+	 */
+	private ItemStack cachedButton(int index) {
+		if (this.cachedButtons == null || this.cachedPage != this.currentPage || this.cachedPageCount != this.pageCount) {
+			ItemStack[] buttons = new ItemStack[SMDustbinContainer.BUTTON_SLOTS];
+			for (int i = 0; i < buttons.length; ++i) {
+				buttons[i] = this.buttonStackFor(SMDustbinContainer.SIZE + i);
+			}
+			this.cachedButtons = buttons;
+			this.cachedPage = this.currentPage;
+			this.cachedPageCount = this.pageCount;
+		}
+		return this.cachedButtons[index - SMDustbinContainer.SIZE];
+	}
+
+	/**
 	 * 切换当前页喵~
 	 * <p>
-	 * 仅切换内部容器引用并同步，不关闭重开界面（避免鼠标被锁定居中）喵~。翻页状态随后由
-	 * {@link #syncPageStateToClient()} 推送给装了模组的客户端喵~
+	 * 仅切换内部容器引用并同步，不关闭重开界面（避免鼠标被锁定居中）喵~。
 	 * </p>
 	 *
 	 * @param newPage 目标页索引（越界自动钳制）喵~
@@ -179,7 +327,8 @@ public class DustbinMenu extends AbstractContainerMenu implements Container {
 		}
 		this.currentPage = Mth.clamp(newPage, 0, pageCount - 1);
 		this.pageContainer = SMSavedData.getDustbinContainer(this.currentPage);
-		// 与 rebindPageContainerIfDetached 保持一致：换页等同于换容器，必须全量重发，
+		this.pageCount = pageCount;
+		// 与 rebindPageContainerIfRotated 保持一致：换页等同于换容器，必须全量重发，
 		// 否则增量同步会拿新页去比对旧页的 lastSlots，判定成「没变」而一格格都不发喵~
 		this.broadcastFullState();
 	}
@@ -234,11 +383,6 @@ public class DustbinMenu extends AbstractContainerMenu implements Container {
 	 * 但页码与页数往往都没变喵~。如果不重新指向，槽位会一直读到那个孤立的旧容器：界面「冻」在清扫前的内容，
 	 * 玩家的点击也会落在一个没人再看的对象上，等于白点喵~。
 	 * </p>
-	 * <p>
-	 * 这段逻辑<b>不能</b>挂在 {@link #syncPageStateToClient()} 里：后者在客户端菜单或
-	 * 「没有目标玩家」时会提前返回，而重新挂容器是所有服务端菜单都必须做的事，
-	 * 与「要不要给这个客户端发状态包」无关喵~。
-	 * </p>
 	 */
 	private void rebindPageContainerIfRotated() {
 		if (this.clientSide || !SMSavedData.hasInstance()) {
@@ -259,8 +403,8 @@ public class DustbinMenu extends AbstractContainerMenu implements Container {
 	/**
 	 * 把当前页与总页数推送给装了模组的客户端喵~
 	 * <p>
-	 * 页码 / 页数一旦变化就补发一次状态；缓存未命中判断依赖 {@link #rebindPageContainerIfRotated()}
-	 * 已经跑过，所以这里读到的 {@link #pageContainer} 一定是最新的喵~。
+	 * 对未装模组的客户端这条消息不会发送（{@code hasChannel} 为 false），它们靠着服务端下发的
+	 * 按钮物品本身就能翻页喵~。
 	 * </p>
 	 */
 	private void syncPageStateToClient() {
@@ -294,7 +438,8 @@ public class DustbinMenu extends AbstractContainerMenu implements Container {
 	/**
 	 * Shift 快速移动物品喵~
 	 * <p>
-	 * 从垃圾箱移出时按物品栏槽位上限（64）分块搬运，多余部分留在垃圾箱中喵~
+	 * 从垃圾箱移出时按物品栏槽位上限（64）分块搬运，多余部分留在垃圾箱中喵~。
+	 * 按钮槽位不参与搬运（搬运范围只到 {@link SMDustbinContainer#SIZE}）喵~。
 	 * </p>
 	 *
 	 * @param player 玩家实例喵~
@@ -305,11 +450,11 @@ public class DustbinMenu extends AbstractContainerMenu implements Container {
 	public ItemStack quickMoveStack(Player player, int index) {
 		ItemStack result = ItemStack.EMPTY;
 		Slot slot = this.slots.get(index);
-		if (slot != null && slot.hasItem()) {
+		if (slot != null && slot.hasItem() && !isButtonSlot(index)) {
 			ItemStack current = slot.getItem();
 			result = current.copy();
 			if (index < SMDustbinContainer.SIZE) {
-				if (!this.moveItemStackTo(current, SMDustbinContainer.SIZE, this.slots.size(), true)) {
+				if (!this.moveItemStackTo(current, CHEST_SLOTS, this.slots.size(), true)) {
 					return ItemStack.EMPTY;
 				}
 			} else if (!this.moveItemStackTo(current, 0, SMDustbinContainer.SIZE, false)) {
@@ -329,19 +474,19 @@ public class DustbinMenu extends AbstractContainerMenu implements Container {
 	/**
 	 * 处理玩家点击喵~
 	 * <p>
-	 * 唯一被接管的是「数字键 / F 键与快捷栏交换」（{@code ClickType.SWAP}）：原版那条分支是
-	 * {@code inventory.setItem(hotbar, slot.getItem())}，而 {@code Inventory#setItem} 内部只是
-	 * {@code nonnulllist.set(...)}，<b>既不调用 {@code limitSize}，也完全不过</b>
-	 * {@link SMDustbinSlot#tryRemove} 喵~。于是玩家按一下数字键，就能把整个超大堆
-	 * （默认上限 100 万）原样搬进一个快捷栏格子，随后掉落 / 死亡写档时会生成超大堆，
-	 * 正是本模组要防的存档损坏喵~。
+	 * 两类点击被本类接管：
 	 * </p>
-	 * <p>
-	 * 因此这里在进入原版逻辑前先做一次「拆分搬运」：快捷栏目标格为空时，只搬走
-	 * {@link SMDustbinContainer#TAKE_LIMIT} 个，其余留在原位；目标格非空时无法同时安置
-	 * 「换进来的物品」与「留下的余量」，就直接不响应（与原版各种被 {@code mayPickup} 挡下的
-	 * 情况一样是静默无效），绝不做会让数量凭空增减的操作喵~。
-	 * </p>
+	 * <ol>
+	 *     <li><b>翻页按钮</b>（{@link #isButtonSlot}）：不论左键、右键、Shift、数字键、Q 还是拖拽，
+	 *     一律拦下并吃掉，绝不让那个「假物品」流入任何真实容器喵~。这正是翻页能纯服务端实现的原因——
+	 *     未装模组的客户端点一下就是发一次普通点击包，服务端在这里认出来就行喵~。</li>
+	 *     <li><b>「数字键 / F 键与快捷栏交换」</b>（{@code ClickType.SWAP}）：原版那条分支是
+	 *     {@code inventory.setItem(hotbar, slot.getItem())}，而 {@code Inventory#setItem} 内部只是
+	 *     {@code nonnulllist.set(...)}，<b>既不调用 {@code limitSize}，也完全不过</b>
+	 *     {@link SMDustbinSlot#tryRemove} 喵~。于是玩家按一下数字键，就能把整个超大堆
+	 *     （默认上限 100 万）原样搬进一个快捷栏格子，随后掉落 / 死亡写档时会生成超大堆，
+	 *     正是本模组要防的存档损坏喵~。</li>
+	 * </ol>
 	 *
 	 * @param slotId    槽位索引喵~
 	 * @param button    按钮 / 快捷栏索引喵~
@@ -350,10 +495,51 @@ public class DustbinMenu extends AbstractContainerMenu implements Container {
 	 */
 	@Override
 	public void clicked(int slotId, int button, ClickType clickType, Player player) {
+		if (this.handleButtonClick(slotId, button, clickType)) {
+			return;
+		}
 		if (clickType == ClickType.SWAP && this.handleSwapClick(slotId, button, player)) {
 			return;
 		}
 		super.clicked(slotId, button, clickType, player);
+	}
+
+	/**
+	 * 处理对翻页按钮的点击喵~
+	 * <p>
+	 * 返回 {@code true} 表示这次点击已被完全消化，{@code super.clicked} 不会再执行——按钮物品
+	 * 因此<b>永远不可能</b>被拿起来、被 Shift 搬进背包、被 Q 丢出去喵~。
+	 * </p>
+	 * <p>
+	 * 只有左键（含 Shift + 左键）会真正翻页；其它点击类型只是被静默吞掉，既不翻页也不报错，
+	 * 与「点了但没反应」的原版按钮手感一致喵~。
+	 * </p>
+	 *
+	 * @param slotId    槽位索引喵~
+	 * @param button    鼠标键位喵~
+	 * @param clickType 点击类型喵~
+	 * @return 是否已处理喵~
+	 */
+	private boolean handleButtonClick(int slotId, int button, ClickType clickType) {
+		if (!isButtonSlot(slotId)) {
+			return false;
+		}
+		if (this.clientSide) {
+			// 客户端不做本地预测：翻页完全由服务端裁决，界面内容随服务端全量重发刷新喵~
+			return true;
+		}
+		boolean leftClick = button == 0 && (clickType == ClickType.PICKUP || clickType == ClickType.QUICK_MOVE);
+		if (leftClick) {
+			int delta = switch (slotId) {
+				case SLOT_PREVIOUS -> -1;
+				case SLOT_NEXT -> 1;
+				default -> 0;
+			};
+			if (delta != 0) {
+				this.setPageIndex(this.currentPage + delta);
+			}
+		}
+		return true;
 	}
 
 	/**
@@ -405,6 +591,15 @@ public class DustbinMenu extends AbstractContainerMenu implements Container {
 
 	// ---- Container 委托实现（槽位绑定到菜单自身，翻页仅切换 pageContainer 引用）喵~ ----
 
+	/**
+	 * 容器的槽位数喵~
+	 * <p>
+	 * 返回的是<b>箱子内容</b>格数（{@link SMDustbinContainer#SIZE}），不含按钮行喵~。
+	 * 按钮槽位是 {@link SMDustbinButtonSlot} 自己的虚拟物品，不经过这里喵~。
+	 * </p>
+	 *
+	 * @return 内容槽位数喵~
+	 */
 	@Override
 	public int getContainerSize() {
 		return SMDustbinContainer.SIZE;
@@ -417,21 +612,33 @@ public class DustbinMenu extends AbstractContainerMenu implements Container {
 
 	@Override
 	public ItemStack getItem(int index) {
+		if (isButtonSlot(index)) {
+			return this.cachedButton(index);
+		}
 		return this.pageContainer.getItem(index);
 	}
 
 	@Override
 	public ItemStack removeItem(int index, int count) {
+		if (isButtonSlot(index)) {
+			return ItemStack.EMPTY;
+		}
 		return this.pageContainer.removeItem(index, count);
 	}
 
 	@Override
 	public ItemStack removeItemNoUpdate(int index) {
+		if (isButtonSlot(index)) {
+			return ItemStack.EMPTY;
+		}
 		return this.pageContainer.removeItemNoUpdate(index);
 	}
 
 	@Override
 	public void setItem(int index, ItemStack stack) {
+		if (isButtonSlot(index)) {
+			return;
+		}
 		this.pageContainer.setItem(index, stack);
 	}
 
@@ -462,6 +669,64 @@ public class DustbinMenu extends AbstractContainerMenu implements Container {
 
 	@Override
 	public boolean canPlaceItem(int index, ItemStack stack) {
+		if (isButtonSlot(index)) {
+			// 按钮格绝不接受任何物品：漏斗、拖拽分配、Shift 搬运都不能把东西塞进来喵~
+			return false;
+		}
 		return this.pageContainer.canPlaceItem(index, stack);
+	}
+
+	/**
+	 * 翻页按钮的虚拟槽位喵~
+	 * <p>
+	 * 背后<b>没有</b>真实容器：服务端由 {@link DustbinMenu#buttonStackFor} 现场合成，
+	 * 因此天然不可能被复制、也不可能被取出喵~。<br>
+	 * {@code mayPickup} / {@code mayPlace} 都返回 {@code false}，从「槽位」这一层就把
+	 * 原版所有搬运路径（左键、右键、拖拽、Shift、数字键、Q）堵死喵~。
+	 * </p>
+	 * <p>
+	 * 客户端不走合成分支，而是接住服务端同步下来的那一份：按钮的文案、颜色、可用状态全部由
+	 * 服务端决定，客户端只负责画出来喵~。
+	 * </p>
+	 */
+	private static final class SMDustbinButtonSlot extends Slot {
+		private final DustbinMenu menu;
+		/**
+		 * 客户端侧收到并保留的按钮物品喵~
+		 */
+		private ItemStack synced = ItemStack.EMPTY;
+
+		private SMDustbinButtonSlot(DustbinMenu menu, int index, int x, int y) {
+			super(menu, index, x, y);
+			this.menu = menu;
+		}
+
+		@Override
+		public boolean mayPickup(Player player) {
+			return false;
+		}
+
+		@Override
+		public boolean mayPlace(ItemStack stack) {
+			return false;
+		}
+
+		@Override
+		public ItemStack getItem() {
+			return this.menu.clientSide ? this.synced : this.menu.cachedButton(this.getContainerSlot());
+		}
+
+		@Override
+		public void set(ItemStack stack) {
+			// 服务端不接受写入（保持现场合成的状态）；客户端接住同步下来的那一份喵~
+			if (this.menu.clientSide) {
+				this.synced = stack;
+			}
+		}
+
+		@Override
+		public void setChanged() {
+			// 按钮不是真实内容，改不动任何东西喵~
+		}
 	}
 }

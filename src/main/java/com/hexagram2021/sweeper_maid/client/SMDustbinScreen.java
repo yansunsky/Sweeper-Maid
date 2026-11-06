@@ -1,7 +1,6 @@
 package com.hexagram2021.sweeper_maid.client;
 
 import com.hexagram2021.sweeper_maid.inventory.DustbinMenu;
-import com.hexagram2021.sweeper_maid.network.SMPageChangePayload;
 import com.hexagram2021.sweeper_maid.save.SMDustbinSlot;
 import java.util.ArrayList;
 import java.util.List;
@@ -16,12 +15,20 @@ import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
-import net.neoforged.neoforge.network.PacketDistributor;
 
 /**
  * 垃圾箱界面喵~
  * <p>
- * 在原版大箱子界面基础上，于顶部左侧绘制「上一页 / 页码 / 下一页」翻页控件喵~
+ * 装在本模组的客户端上时，把原版 6×9 大箱子界面替换成这个类，负责<b>两件纯展示的事</b>喵~：
+ * <ul>
+ *     <li>超大堆叠的数量缩写（{@code 1.2K} / {@code 4.6M} / {@code 1.5B}），并在超宽时缩小字号喵~</li>
+ *     <li>鼠标悬停时补上原版容器物品 tooltip，大堆叠额外显示确切数量喵~</li>
+ * </ul>
+ * </p>
+ * <p>
+ * <b>翻页控件已经不在这里了</b>：翻页按钮是服务端合成的染色玻璃板物品（见
+ * {@link DustbinMenu}），未装模组的客户端也能用。客户端不再绘制 {@code <} / {@code >}、
+ * 也不再发送翻页请求包，翻页对两端客户端是同一套行为喵~。
  * </p>
  * <p>
  * 本类标了 {@link OnlyIn}：它继承了客户端专有的 {@link AbstractContainerScreen}，
@@ -34,9 +41,6 @@ public class SMDustbinScreen extends AbstractContainerScreen<DustbinMenu> {
 	 * 界面背景贴图（复用原版 6×9 箱子）喵~
 	 */
 	private static final ResourceLocation BACKGROUND = ResourceLocation.withDefaultNamespace("textures/gui/container/generic_54.png");
-
-	private static final int BUTTON_WIDTH = 16;
-	private static final int BUTTON_HEIGHT = 12;
 
 	/**
 	 * 数量文本在槽位内允许的最大像素宽度喵~
@@ -51,24 +55,11 @@ public class SMDustbinScreen extends AbstractContainerScreen<DustbinMenu> {
 	private static final float COUNT_MIN_SCALE = 0.35F;
 
 	/**
-	 * 上一页按钮相对界面左上角的 X 坐标喵~
-	 */
-	private static final int PREV_BUTTON_REL_X = 4;
-	/**
-	 * 下一页按钮相对界面左上角的 X 坐标喵~
-	 */
-	private static final int NEXT_BUTTON_REL_X = 42;
-	/**
-	 * 翻页按钮相对界面左上角的 Y 坐标喵~
-	 */
-	private static final int BUTTON_REL_Y = 4;
-
-	/**
 	 * 创建垃圾箱界面喵~
 	 *
-	 * @param menu       菜单实例喵~
+	 * @param menu            菜单实例喵~
 	 * @param playerInventory 玩家物品栏喵~
-	 * @param title      界面标题喵~
+	 * @param title           界面标题喵~
 	 */
 	public SMDustbinScreen(DustbinMenu menu, Inventory playerInventory, Component title) {
 		super(menu, playerInventory, title);
@@ -94,9 +85,10 @@ public class SMDustbinScreen extends AbstractContainerScreen<DustbinMenu> {
 	/**
 	 * 渲染垃圾箱槽位喵~
 	 * <p>
-	 * 仅对垃圾箱槽位（大堆叠）做数量缩写：数量 ≥ 1000 时显示为 {@code 1.2K}、{@code 4.6M}、
+	 * 仅对垃圾箱内容槽位（大堆叠）做数量缩写：数量 ≥ 1000 时显示为 {@code 1.2K}、{@code 4.6M}、
 	 * {@code 1.5B} 之类；数量文本超出槽位宽度时自动缩小字号，保证不会压到相邻槽位的物品喵~<br>
-	 * 玩家物品栏等其它槽位保持原版渲染喵~；原版「按住拖拽分配物品」时槽位上的半透明高亮也会保留喵~
+	 * 翻页按钮槽位与玩家物品栏等其它槽位保持原版渲染喵~；原版「按住拖拽分配物品」时的
+	 * 半透明高亮也会保留喵~
 	 * </p>
 	 */
 	@Override
@@ -175,6 +167,22 @@ public class SMDustbinScreen extends AbstractContainerScreen<DustbinMenu> {
 	}
 
 	/**
+	 * 渲染界面内容喵~
+	 *
+	 * @param graphics    绘制工具喵~
+	 * @param mouseX      鼠标 X 坐标喵~
+	 * @param mouseY      鼠标 Y 坐标喵~
+	 * @param partialTick 部分 tick 喵~
+	 */
+	@Override
+	public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+		super.render(graphics, mouseX, mouseY, partialTick);
+
+		// 1.21.1 容器界面必须在 render 末尾手动绘制物品 tooltip（原版 ContainerScreen 同样如此）
+		this.renderTooltip(graphics, mouseX, mouseY);
+	}
+
+	/**
 	 * 将物品数量缩写为可读的短文本喵~
 	 * <p>
 	 * 小于 1000 原样返回；达到千 / 百万 / 十亿后保留一位小数，末尾的 {@code .0} 省略
@@ -205,73 +213,5 @@ public class SMDustbinScreen extends AbstractContainerScreen<DustbinMenu> {
 			return (tenths / 10) + suffix;
 		}
 		return (tenths / 10) + "." + (tenths % 10) + suffix;
-	}
-
-	/**
-	 * 渲染界面内容喵~
-	 *
-	 * @param graphics    绘制工具喵~
-	 * @param mouseX      鼠标 X 坐标喵~
-	 * @param mouseY      鼠标 Y 坐标喵~
-	 * @param partialTick 部分 tick 喵~
-	 */
-	@Override
-	public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-		super.render(graphics, mouseX, mouseY, partialTick);
-
-		int currentPage = this.menu.getCurrentPage();
-		int pageCount = this.menu.getPageCount();
-
-		boolean hasPrev = currentPage > 0;
-		boolean hasNext = currentPage < pageCount - 1;
-
-		int arrowColor = 0xFFE0E0E0;
-		int disabledColor = 0xFF606060;
-		int hoverColor = 0xFFFFA500;
-
-		boolean hoveringPrev = isHovering(PREV_BUTTON_REL_X, BUTTON_REL_Y, BUTTON_WIDTH, BUTTON_HEIGHT, mouseX, mouseY);
-		boolean hoveringNext = isHovering(NEXT_BUTTON_REL_X, BUTTON_REL_Y, BUTTON_WIDTH, BUTTON_HEIGHT, mouseX, mouseY);
-
-		graphics.drawString(this.font, "<", this.leftPos + PREV_BUTTON_REL_X + 3, this.topPos + BUTTON_REL_Y + 3, hasPrev ? (hoveringPrev ? hoverColor : arrowColor) : disabledColor);
-		graphics.drawString(this.font, ">", this.leftPos + NEXT_BUTTON_REL_X + 3, this.topPos + BUTTON_REL_Y + 3, hasNext ? (hoveringNext ? hoverColor : arrowColor) : disabledColor);
-
-		if (hoveringPrev && hasPrev) {
-			graphics.renderTooltip(this.font, Component.translatable("sweeper_maid.dustbin.previous_page"), mouseX, mouseY);
-		} else if (hoveringNext && hasNext) {
-			graphics.renderTooltip(this.font, Component.translatable("sweeper_maid.dustbin.next_page"), mouseX, mouseY);
-		}
-
-		int textColor = 0xFFE0E0E0;
-		String pageText = (currentPage + 1) + "/" + pageCount;
-		graphics.drawString(this.font, pageText, this.leftPos + 22, this.topPos + 7, textColor);
-
-		// 1.21.1 容器界面必须在 render 末尾手动绘制物品 tooltip（原版 ContainerScreen 同样如此）
-		this.renderTooltip(graphics, mouseX, mouseY);
-	}
-
-	/**
-	 * 鼠标点击处理喵~
-	 *
-	 * @param mouseX X 坐标喵~
-	 * @param mouseY Y 坐标喵~
-	 * @param button 按钮编号喵~
-	 * @return 是否已处理喵~
-	 */
-	@Override
-	public boolean mouseClicked(double mouseX, double mouseY, int button) {
-		if (button == 0) {
-			int currentPage = this.menu.getCurrentPage();
-			int pageCount = this.menu.getPageCount();
-
-			if (currentPage > 0 && isHovering(PREV_BUTTON_REL_X, BUTTON_REL_Y, BUTTON_WIDTH, BUTTON_HEIGHT, mouseX, mouseY)) {
-				PacketDistributor.sendToServer(new SMPageChangePayload(-1));
-				return true;
-			}
-			if (currentPage < pageCount - 1 && isHovering(NEXT_BUTTON_REL_X, BUTTON_REL_Y, BUTTON_WIDTH, BUTTON_HEIGHT, mouseX, mouseY)) {
-				PacketDistributor.sendToServer(new SMPageChangePayload(1));
-				return true;
-			}
-		}
-		return super.mouseClicked(mouseX, mouseY, button);
 	}
 }

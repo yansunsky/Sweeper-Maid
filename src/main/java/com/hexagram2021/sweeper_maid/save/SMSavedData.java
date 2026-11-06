@@ -88,6 +88,36 @@ public final class SMSavedData extends SavedData {
 				}
 			}
 		}
+		this.remigrateOverflow();
+	}
+
+	/**
+	 * 把老存档一页装不下的物品重新装回垃圾箱喵~
+	 * <p>
+	 * v2.1.x 及更早的存档一页 54 格，而底部一行现在留给翻页按钮，内容只剩 45 格喵~。
+	 * {@link SMDustbinContainer#fromTag} 会把装不下的收进溢出表，这里统一取出来：
+	 * 先按原顺序用 {@link #addItemToDustbin} 塞回去（同种合并、满了就开新页），
+	 * 若重排后还有剩余页，再整体 {@link #sortDustbins()} 把页面收紧喵~。
+	 * </p>
+	 * <p>
+	 * <b>不能省掉这一步</b>：溢出表只活在内存里，下一 tick 写档时就会被覆盖，
+	 * 玩家升级模组后会直接少掉那批物品（且没有任何报错）喵~。
+	 * </p>
+	 */
+	private void remigrateOverflow() {
+		List<ItemStack> overflowed = new ArrayList<>();
+		synchronized (this.dustbins) {
+			for (SMDustbinContainer dustbin : this.dustbins) {
+				overflowed.addAll(dustbin.drainOverflow());
+			}
+		}
+		if (overflowed.isEmpty()) {
+			return;
+		}
+		for (ItemStack stack : overflowed) {
+			this.addItemToDustbin(stack);
+		}
+		this.sortDustbins();
 	}
 
 	/**
@@ -235,7 +265,8 @@ public final class SMSavedData extends SavedData {
 	 * 全局重排喵~
 	 * <p>
 	 * 收集所有页所有物品，同种合并后按数量从大到小排序（并列时按物品 ID 排序），
-	 * 再按每页 54 格重新打包；空页自动移除；至少保留一页喵~。<br>
+	 * 再按每页 {@link SMDustbinContainer#SIZE} 格（45 格，底部一行留给翻页按钮）重新打包；
+	 * 空页自动移除；至少保留一页喵~。<br>
 	 * 使用 Java 内置 Timsort（近乎有序时接近 O(n)），每次清扫完成后调用一次喵~
 	 * </p>
 	 */

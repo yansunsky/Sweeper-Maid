@@ -29,5 +29,9 @@
     "sweeper_maid.dustbin.name": "Dustbin %s",
     "sweeper_maid.dustbin.previous_page": "Previous page",
     "sweeper_maid.dustbin.next_page": "Next page",
+    "sweeper_maid.dustbin.page_info": "Page %s / %s",
+    "sweeper_maid.dustbin.page_hint": "Click to turn the page",
+    "sweeper_maid.dustbin.page_blocked": "No more pages",
+    "sweeper_maid.dustbin.page_info_hint": "Current page",
     "sweeper_maid.dustbin.item_count": "Amount: %s"
 }

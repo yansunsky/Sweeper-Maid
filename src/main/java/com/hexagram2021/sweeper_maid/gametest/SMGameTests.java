@@ -7,7 +7,6 @@ import com.hexagram2021.sweeper_maid.config.SMCommonConfig;
 import com.hexagram2021.sweeper_maid.inventory.DustbinMenu;
 import com.hexagram2021.sweeper_maid.network.SMDustbinStatePayload;
 import com.hexagram2021.sweeper_maid.network.SMDustbinSyncRequestPayload;
-import com.hexagram2021.sweeper_maid.network.SMPageChangePayload;
 import com.hexagram2021.sweeper_maid.save.SMDustbinContainer;
 import com.hexagram2021.sweeper_maid.save.SMDustbinSlot;
 import com.hexagram2021.sweeper_maid.save.SMSavedData;
@@ -17,6 +16,8 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtOps;
 import net.minecraft.network.ConnectionProtocol;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
@@ -33,6 +34,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.inventory.MenuType;
+import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -124,7 +126,7 @@ public final class SMGameTests {
 	/**
 	 * 同种物品合并与满页自动新建测试喵~
 	 * <p>
-	 * 已存在的物品种类应并入原格（不占新槽）；填满 54 格后再收新物品应自动新建页面喵~
+	 * 已存在的物品种类应并入原格（不占新槽）；填满一页后再收新物品应自动新建页面喵~
 	 * </p>
 	 */
 	@GameTest(template = "empty")
@@ -141,7 +143,8 @@ public final class SMGameTests {
 			if (item == Items.DIAMOND) {
 				continue;
 			}
-			if (added >= 53) {
+			// 一页只有 45 格（底部一行留给了翻页按钮），已有 1 格钻石，再填 44 格就是满页喵~
+			if (added >= SMDustbinContainer.SIZE - 1) {
 				break;
 			}
 			data.addItemToDustbin(new ItemStack(item));
@@ -176,7 +179,7 @@ public final class SMGameTests {
 	/**
 	 * 全局重排与动态页数测试喵~
 	 * <p>
-	 * 120 种物品应重排为 3 页（54+54+12），按数量降序，第 1 页第 1 格是数量最多的物品喵~
+	 * 120 种物品应重排为 3 页（45+45+30），按数量降序，第 1 页第 1 格是数量最多的物品喵~
 	 * </p>
 	 */
 	@GameTest(template = "empty")
@@ -195,6 +198,7 @@ public final class SMGameTests {
 
 		data.sortDustbins();
 
+		// 每页 45 格：120 种物品 → ceil(120/45) = 3 页喵~
 		if (data.dustbins.size() != 3) {
 			helper.fail("Expected 3 pages after sorting 120 items, got " + data.dustbins.size());
 			return;
@@ -564,8 +568,10 @@ public final class SMGameTests {
 		}
 
 		// 3) 槽位数量与布局必须与原版 6 行大箱子一致喵~
-		if (menu.slots.size() != SMDustbinContainer.SIZE + 36) {
-			helper.fail("Unexpected slot count " + menu.slots.size() + ", expected " + (SMDustbinContainer.SIZE + 36));
+		//    45 个内容格 + 9 个翻页按钮格 + 36 个玩家格 = 90；少一格都会让未装模组的客户端错位喵~
+		int chestSlots = SMDustbinContainer.SIZE + SMDustbinContainer.BUTTON_SLOTS;
+		if (menu.slots.size() != chestSlots + 36) {
+			helper.fail("Unexpected slot count " + menu.slots.size() + ", expected " + (chestSlots + 36));
 			return;
 		}
 		for (int i = 0; i < SMDustbinContainer.SIZE; ++i) {
@@ -574,10 +580,18 @@ public final class SMGameTests {
 				return;
 			}
 		}
+		// 按钮行必须既不接受物品、也不允许取出，否则那个「假物品」就能被玩家拿走喵~
+		for (int i = SMDustbinContainer.SIZE; i < chestSlots; ++i) {
+			Slot buttonSlot = menu.getSlot(i);
+			if (buttonSlot.mayPickup(null) || buttonSlot.mayPlace(new ItemStack(Items.DIAMOND))) {
+				helper.fail("Button slot " + i + " must neither be pickable nor placeable");
+				return;
+			}
+		}
 		// 第 0 个垃圾箱槽位 / 第 0 个玩家主槽位 / 第 0 个快捷栏槽位的坐标须与原版 ChestMenu 一致喵~
 		if (menu.getSlot(0).x != 8 || menu.getSlot(0).y != 18
-				|| menu.getSlot(SMDustbinContainer.SIZE).x != 8 || menu.getSlot(SMDustbinContainer.SIZE).y != 139
-				|| menu.getSlot(SMDustbinContainer.SIZE + 27).x != 8 || menu.getSlot(SMDustbinContainer.SIZE + 27).y != 197) {
+				|| menu.getSlot(chestSlots).x != 8 || menu.getSlot(chestSlots).y != 139
+				|| menu.getSlot(chestSlots + 27).x != 8 || menu.getSlot(chestSlots + 27).y != 197) {
 			helper.fail("Slot layout diverges from vanilla ChestMenu coordinates");
 			return;
 		}
@@ -605,7 +619,7 @@ public final class SMGameTests {
 	@GameTest(template = "empty")
 	public static void testAllPayloadsAreOptional(GameTestHelper helper) {
 		List<CustomPacketPayload.Type<?>> ours = List.of(
-				SMPageChangePayload.TYPE, SMDustbinStatePayload.TYPE, SMDustbinSyncRequestPayload.TYPE);
+				SMDustbinStatePayload.TYPE, SMDustbinSyncRequestPayload.TYPE);
 
 		for (CustomPacketPayload.Type<?> type : ours) {
 			boolean found = false;
@@ -1284,6 +1298,154 @@ public final class SMGameTests {
 			}
 		} finally {
 			SMCommonConfig.PERMISSION_LEVEL_DUSTBIN.set(original);
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * 服务端物品按钮翻页的回归测试喵~
+	 * <p>
+	 * 翻页现在是<b>纯服务端</b>行为：界面最下面一行放着服务端合成的假物品按钮，未装模组的客户端
+	 * 点一下就是一次普通点击包，服务端在 {@code clicked} 里认出来并换页喵~。本测试钉住三件事：
+	 * </p>
+	 * <ul>
+	 *     <li>点击「下一页」按钮会真的换页（这是功能本体）；</li>
+	 *     <li>按钮物品永远拿不走——即使走了原版「Shift 快速移动」路径，也进不了玩家背包；</li>
+	 *     <li>按钮格不接受任何物品（防止漏斗 / 拖拽把东西塞进按钮格里覆盖掉）喵~。</li>
+	 * </ul>
+	 */
+	@GameTest(template = "empty")
+	public static void testButtonSlotTurnsPage(GameTestHelper helper) {
+		SMSavedData data = new SMSavedData();
+		// 造 2 页：每页 45 格全部填满，重排后正好两页喵~
+		List<Item> items = firstItems(90);
+		for (Item item : items) {
+			data.addItemToDustbin(new ItemStack(item));
+		}
+		data.sortDustbins();
+		SMSavedData.setInstance(data);
+		if (data.dustbins.size() < 2) {
+			helper.fail("Setup failed: expected at least 2 pages, got " + data.dustbins.size());
+			return;
+		}
+
+		Player player = helper.makeMockPlayer(GameType.SURVIVAL);
+		DustbinMenu menu = new DustbinMenu(0, player.getInventory(), data.dustbins.get(0), 0, data.dustbins.size());
+
+		int chestSlots = SMDustbinContainer.SIZE + SMDustbinContainer.BUTTON_SLOTS;
+		// 按钮行里应当只有 3 个槽位有物品：上一页、页码、下一页喵~
+		int buttons = 0;
+		for (int i = SMDustbinContainer.SIZE; i < chestSlots; ++i) {
+			if (!menu.getSlot(i).getItem().isEmpty()) {
+				++buttons;
+			}
+		}
+		if (buttons != 3) {
+			helper.fail("Expected exactly 3 button items at the bottom row (prev / page / next), got " + buttons);
+			return;
+		}
+
+		// 点击最右下的「下一页」：应当从第 0 页翻到第 1 页喵~
+		int nextSlot = SMDustbinContainer.SIZE + 8;
+		menu.clicked(nextSlot, 0, ClickType.PICKUP, player);
+		if (menu.getCurrentPage() != 1) {
+			helper.fail("Clicking the next-page button should move to page 1, but the menu is on page " + menu.getCurrentPage());
+			return;
+		}
+		// 再点上一页回到第 0 页喵~
+		menu.clicked(SMDustbinContainer.SIZE, 0, ClickType.PICKUP, player);
+		if (menu.getCurrentPage() != 0) {
+			helper.fail("Clicking the previous-page button should return to page 0, but the menu is on page " + menu.getCurrentPage());
+			return;
+		}
+
+		// 按钮物品不得进入玩家背包：直接走 Shift 快速移动（原版最容易被漏掉的一条路径）喵~
+		int before = player.getInventory().getContainerSize();
+		ItemStack moved = menu.quickMoveStack(player, nextSlot);
+		if (!moved.isEmpty()) {
+			helper.fail("Shift-clicking a button slot must move nothing, but moved: " + moved);
+			return;
+		}
+		for (int i = 0; i < before; ++i) {
+			if (!player.getInventory().getItem(i).isEmpty()) {
+				helper.fail("A button item leaked into the player inventory at slot " + i + ": " + player.getInventory().getItem(i));
+				return;
+			}
+		}
+		// 按钮格也不得接受物品喵~
+		if (menu.canPlaceItem(nextSlot, new ItemStack(Items.DIAMOND))) {
+			helper.fail("A button slot must not accept items");
+			return;
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * 老存档 54 格 → 新存档 45 格的迁移测试喵~
+	 * <p>
+	 * 这是升级时最容易静默丢物品的地方：旧档一页 54 格，新版本底部一行要给翻页按钮，内容只剩 45 格喵~。
+	 * {@code fromTag} 用 {@code addItem} 顺序填充，装不下的必须收进溢出表，再由
+	 * {@code SMSavedData} 读档后重排回桶里；否则玩家一升级，第 46~54 格的物品就凭空消失了喵~。
+	 * </p>
+	 */
+	@GameTest(template = "empty")
+	public static void testLegacy54SlotMigration(GameTestHelper helper) {
+		HolderLookup.Provider provider = helper.getLevel().registryAccess();
+
+		// 手工拼一份「旧版 54 格满页」的 NBT：54 种不同物品，每种数量 = 下标 + 1 喵~
+		List<Item> legacyItems = firstItems(54);
+		ListTag pageItems = new ListTag();
+		for (int i = 0; i < legacyItems.size(); ++i) {
+			ItemStack stack = new ItemStack(legacyItems.get(i));
+			stack.setCount(i + 1);
+			CompoundTag slotTag = new CompoundTag();
+			slotTag.put("stack", ItemStack.SINGLE_ITEM_CODEC
+					.encodeStart(provider.createSerializationContext(NbtOps.INSTANCE), stack.copyWithCount(1))
+					.getOrThrow());
+			slotTag.putInt("count", i + 1);
+			pageItems.add(slotTag);
+		}
+		CompoundTag pageTag = new CompoundTag();
+		pageTag.put("Items", pageItems);
+		ListTag pages = new ListTag();
+		pages.add(pageTag);
+		CompoundTag root = new CompoundTag();
+		root.put("Dustbins", pages);
+
+		SMSavedData loaded = new SMSavedData(root, provider);
+
+		// 1) 一件都不能少：总量必须还是 1+2+...+54 = 1485 喵~
+		long expected = (long) legacyItems.size() * (legacyItems.size() + 1) / 2;
+		long actual = 0;
+		int slotCount = 0;
+		for (SMDustbinContainer page : loaded.dustbins) {
+			for (int i = 0; i < page.getContainerSize(); ++i) {
+				ItemStack stack = page.getItem(i);
+				if (!stack.isEmpty()) {
+					actual += stack.getCount();
+					++slotCount;
+				}
+			}
+		}
+		if (actual != expected) {
+			helper.fail("Legacy migration lost items: expected " + expected + " total, got " + actual);
+			return;
+		}
+		// 2) 54 种物品在新布局下应当重排成 2 页（45 + 9）喵~
+		if (slotCount != legacyItems.size()) {
+			helper.fail("Migration merged distinct items: expected " + legacyItems.size() + " occupied slots, got " + slotCount);
+			return;
+		}
+		if (loaded.dustbins.size() != 2) {
+			helper.fail("54 distinct items should repack into 2 pages of 45, got " + loaded.dustbins.size());
+			return;
+		}
+		// 3) 每页都不能超过 45 格，否则界面底部会被内容顶掉喵~
+		for (SMDustbinContainer page : loaded.dustbins) {
+			if (page.getContainerSize() != SMDustbinContainer.SIZE) {
+				helper.fail("A dustbin page must expose exactly " + SMDustbinContainer.SIZE + " content slots, got " + page.getContainerSize());
+				return;
+			}
 		}
 		helper.succeed();
 	}

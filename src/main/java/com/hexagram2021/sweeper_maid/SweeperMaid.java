@@ -7,7 +7,6 @@ import com.hexagram2021.sweeper_maid.compat.SMCreateCompat;
 import com.hexagram2021.sweeper_maid.config.SMCommonConfig;
 import com.hexagram2021.sweeper_maid.network.SMDustbinStatePayload;
 import com.hexagram2021.sweeper_maid.network.SMDustbinSyncRequestPayload;
-import com.hexagram2021.sweeper_maid.network.SMPageChangePayload;
 import com.hexagram2021.sweeper_maid.save.SMSavedData;
 import com.hexagram2021.sweeper_maid.util.SMExperienceOrbs;
 import com.hexagram2021.sweeper_maid.util.SMText;
@@ -125,7 +124,8 @@ public class SweeperMaid {
 	/**
 	 * 注册自定义网络负载喵~
 	 * <p>
-	 * 翻页按钮的请求通过该通道发送到服务端喵~
+	 * 这两条负载都只服务于「装了本模组的客户端」喵~：翻页本身已经是纯服务端行为
+	 * （点击服务端合成的按钮物品即可），所以原先的翻页请求负载已经删除喵~。
 	 * {@link RegisterPayloadHandlersEvent} 是模组总线事件（IModBusEvent），
 	 * 必须注册到模组事件总线而不能挂在 {@link NeoForge#EVENT_BUS} 上喵~
 	 * </p>
@@ -138,7 +138,6 @@ public class SweeperMaid {
 		// 服务端每次发送前还会再用 hasChannel 兜一次底（见各负载的 send 方法）喵~
 		event.registrar(SweeperMaid.VERSION)
 				.optional()
-				.playToServer(SMPageChangePayload.TYPE, SMPageChangePayload.STREAM_CODEC, SMPageChangePayload::handle)
 				.playToServer(SMDustbinSyncRequestPayload.TYPE, SMDustbinSyncRequestPayload.STREAM_CODEC, SMDustbinSyncRequestPayload::handle)
 				.playToClient(SMDustbinStatePayload.TYPE, SMDustbinStatePayload.STREAM_CODEC, SMDustbinStatePayload::handle);
 	}
@@ -762,23 +761,15 @@ public class SweeperMaid {
 						if(dustbins.isEmpty()) {
 							return;
 						}
-						boolean first = true;
-						for (int i = 0; i < dustbins.size(); ++i) {
-							if(SMSavedData.getDustbinContainer(i).isEmpty()) {
-								continue;
-							}
-							if(first) {
-								first = false;
-							} else {
-								message.append(Component.literal(", "));
-							}
-							final int dustbinIndex = i;
-							message.append(Component.literal("[")
-									.append(SMText.forPlayer(player, SMCommonConfig.DUSTBIN_NAME, "sweeper_maid.dustbin.name", dustbinIndex))
-									.append("]")
-									.withStyle(style -> style.withColor(ChatFormatting.GREEN)
-											.withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/sweepermaid dustbin " + dustbinIndex))));
-						}
+						// 只发一条链接，默认打开第 1 页喵~
+						// 以前这里按页逐个 append [垃圾箱 N]：垃圾桶一多，聊天栏就会被刷屏
+						// （用户反馈的正是这条）喵~。现在靠界面里的翻页按钮就够了，
+						// 玩家点一个链接进去，再用底部的上一页 / 下一页翻喵~。
+						message.append(Component.literal("[")
+								.append(SMText.forPlayer(player, SMCommonConfig.DUSTBIN_NAME, "sweeper_maid.dustbin.name", 0))
+								.append("]")
+								.withStyle(style -> style.withColor(ChatFormatting.GREEN)
+										.withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/sweepermaid dustbin 0"))));
 					});
 
 					player.sendSystemMessage(message);

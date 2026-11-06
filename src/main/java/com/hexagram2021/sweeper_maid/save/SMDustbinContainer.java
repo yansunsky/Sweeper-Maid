@@ -9,6 +9,9 @@ import net.minecraft.nbt.Tag;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.item.ItemStack;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * 大容量垃圾箱容器喵~
  * <p>
@@ -22,9 +25,18 @@ import net.minecraft.world.item.ItemStack;
  */
 public class SMDustbinContainer extends SimpleContainer {
 	/**
-	 * 单页（一个容器）的槽位数喵~
+	 * 单页（一个容器）的<b>内容</b>槽位数喵~
+	 * <p>
+	 * 界面一共 6 行 × 9 列 = 54 格，但<b>最下面一行固定留给翻页按钮</b>，所以真正装物品的只有
+	 * 上面 5 行 = 45 格喵~。这个数字必须与界面上的按钮行对齐：未装模组的客户端固定认为箱子有
+	 * 54 个格子，若内容也用满 54 格就没有地方放按钮了喵~
+	 * </p>
 	 */
-	public static final int SIZE = 54;
+	public static final int SIZE = 45;
+	/**
+	 * 翻页按钮占用的格子数（界面最下面一行）喵~
+	 */
+	public static final int BUTTON_SLOTS = 9;
 	/**
 	 * 玩家单次取走物品的上限（左键/右键均钳制，防止生成数量超过 99 的物品实体导致存档损坏）喵~
 	 */
@@ -33,6 +45,14 @@ public class SMDustbinContainer extends SimpleContainer {
 	private static final String TAG_STACK = "stack";
 	private static final String TAG_COUNT = "count";
 	private static final String TAG_ID = "id";
+
+	/**
+	 * 读档时这一页装不下的物品喵~
+	 * <p>
+	 * 老存档一页 54 格，现在只有 45 格；多出来的由 {@link #drainOverflow()} 交给存档数据重排喵~
+	 * </p>
+	 */
+	private final List<ItemStack> overflow = new ArrayList<>();
 
 	/**
 	 * 创建一个大容量垃圾箱容器喵~
@@ -115,6 +135,11 @@ public class SMDustbinContainer extends SimpleContainer {
 	 * 优先读取新格式 {@code {stack, count}}；若为旧版存档格式（含 {@code id} 字段），则走原版解析以兼容迁移喵~<br>
 	 * 加载后的数量会钳制到当前配置的容量上限喵~
 	 * </p>
+	 * <p>
+	 * <b>老存档迁移</b>：v2.1.x 及更早的存档里，一页有 54 格物品；现在底部一行要留给翻页按钮，
+	 * 内容只剩 {@link #SIZE} = 45 格喵~。多出来的格子<b>绝不能静默丢弃</b>，否则玩家一升级就掉物品；
+	 * 这里把它们收进 {@link #overflow}，由 {@link SMSavedData} 读完所有页后重排回桶里喵~。
+	 * </p>
 	 *
 	 * @param listTag  物品列表标签喵~
 	 * @param provider 注册表提供者喵~
@@ -122,6 +147,7 @@ public class SMDustbinContainer extends SimpleContainer {
 	@Override
 	public void fromTag(ListTag listTag, HolderLookup.Provider provider) {
 		this.clearContent();
+		this.overflow.clear();
 		for (int i = 0; i < listTag.size(); ++i) {
 			CompoundTag slotTag = listTag.getCompound(i);
 			ItemStack stack = ItemStack.EMPTY;
@@ -135,8 +161,30 @@ public class SMDustbinContainer extends SimpleContainer {
 			}
 			if (!stack.isEmpty()) {
 				stack.limitSize(this.getMaxStackSize());
-				this.addItem(stack);
+				ItemStack leftover = this.addItem(stack);
+				if (!leftover.isEmpty()) {
+					// 这一页装不下了（老存档 54 格 → 现在 45 格）：先攒着，交给存档数据重排喵~
+					this.overflow.add(leftover);
+				}
 			}
 		}
+	}
+
+	/**
+	 * 取走「读档时这一页装不下」的物品喵~
+	 * <p>
+	 * 只在 {@link #fromTag} 里产生，正常游戏过程中恒为空喵~。调用方取走后列表会被清空，
+	 * 因此同一个实例重复调用不会把同一批物品算两次喵~。
+	 * </p>
+	 *
+	 * @return 溢出物品；没有溢出时返回空列表喵~
+	 */
+	public List<ItemStack> drainOverflow() {
+		if (this.overflow.isEmpty()) {
+			return List.of();
+		}
+		List<ItemStack> drained = new ArrayList<>(this.overflow);
+		this.overflow.clear();
+		return drained;
 	}
 }

@@ -29,5 +29,9 @@
     "sweeper_maid.dustbin.name": "垃圾箱 %s",
     "sweeper_maid.dustbin.previous_page": "上一页",
     "sweeper_maid.dustbin.next_page": "下一页",
+    "sweeper_maid.dustbin.page_info": "第 %s / %s 页",
+    "sweeper_maid.dustbin.page_hint": "点击翻页",
+    "sweeper_maid.dustbin.page_blocked": "已经到头了",
+    "sweeper_maid.dustbin.page_info_hint": "当前页码",
     "sweeper_maid.dustbin.item_count": "数量：%s"
 }
