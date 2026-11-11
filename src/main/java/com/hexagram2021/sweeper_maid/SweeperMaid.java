@@ -21,6 +21,7 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.ComponentUtils;
+import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.protocol.game.ClientboundSetActionBarTextPacket;
 import net.minecraft.resources.ResourceLocation;
@@ -96,6 +97,14 @@ public class SweeperMaid {
 	 * 模组版本号喵~
 	 */
 	public static final String VERSION = ModList.get().getModFileById(MODID).versionString();
+	/**
+	 * 本分支的源码仓库地址喵~
+	 * <p>
+	 * 登录欢迎语里会以可点击链接的形式发给玩家，用以满足 AGPL-3.0 第 13 条
+	 * 「远程交互用户可获取对应源码」的要求喵~。改动发布地址时记得同步这里喵~
+	 * </p>
+	 */
+	public static final String SOURCE_REPOSITORY_URL = "https://github.com/yansunsky/Sweeper-Maid";
 
 	/**
 	 * 模组实例喵~
@@ -414,11 +423,16 @@ public class SweeperMaid {
 	/**
 	 * 构建分支欢迎提示消息喵~
 	 * <p>
-	 * 关键词（分支名、QQ、邮箱、关闭指令、配置项）使用金色高亮，其余文字灰色喵~
+	 * 关键词（分支名、QQ、邮箱、源码地址、关闭指令、配置项）使用金色高亮，其余文字灰色喵~
 	 * </p>
 	 * <p>
 	 * 兜底文本按<b>该玩家客户端的语言</b>取：未装模组的客户端没有本模组的语言文件，
 	 * 若不带兜底就会把 {@code sweeper_maid.message.fork_welcome} 这个键名直接显示给玩家喵~
+	 * </p>
+	 * <p>
+	 * <b>为什么欢迎语里必须有源码地址</b>：本模组是 AGPL-3.0 的修改版，而 AGPL 第 13 条
+	 * 要求「通过网络远程与本程序交互的用户」能醒目地拿到对应源码。玩家在服务器上看到的
+	 * 正是这条登录消息，所以把仓库地址放在这里是成本最低、也最直接的履约方式喵~
 	 * </p>
 	 *
 	 * @param player 目标玩家喵~
@@ -433,9 +447,32 @@ public class SweeperMaid {
 				Component.literal("Yansunsky").withStyle(highlight),
 				Component.literal("1321833118").withStyle(highlight),
 				Component.literal("Yansunsky@outlook.com").withStyle(highlight),
+				createSourceLink(player),
 				Component.literal("/sweepermaid welcome off").withStyle(highlight),
 				Component.literal("SHOW_FORK_WELCOME").withStyle(highlight))
 				.withStyle(normal);
+	}
+
+	/**
+	 * 构建可点击的源码仓库链接喵~
+	 * <p>
+	 * 用 {@link ClickEvent.Action#OPEN_URL} 而非 {@code RUN_COMMAND}：浏览器由客户端自己拉起，
+	 * 不经过服务端，未装模组的客户端也照样能点喵~。
+	 * 悬浮提示同样带兜底文本，理由与欢迎语一致喵~。
+	 * </p>
+	 *
+	 * @param player 目标玩家喵~
+	 * @return 带点击与悬浮事件的源码链接组件喵~
+	 */
+	private static MutableComponent createSourceLink(ServerPlayer player) {
+		return Component.literal(SOURCE_REPOSITORY_URL)
+				.withStyle(style -> style
+						.withColor(ChatFormatting.GOLD)
+						.withUnderlined(true)
+						.withClickEvent(new ClickEvent(ClickEvent.Action.OPEN_URL, SOURCE_REPOSITORY_URL))
+						.withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
+								SMText.rawForPlayer(player, "sweeper_maid.message.fork_welcome_hover",
+										Component.literal(SOURCE_REPOSITORY_URL).withStyle(ChatFormatting.GOLD)))));
 	}
 
 	/**
