@@ -1,0 +1,51 @@
+Sweeper Maid: Paged Dustbin
+===========================
+
+This is a MODIFIED version of Sweeper Maid.
+
+Upstream work
+-------------
+  Sweeper Maid
+  Copyright (C) Liu Dongyu (GitHub: Viola-Siemens)
+  https://github.com/Viola-Siemens/Sweeper-Maid
+  Licensed under the GNU Affero General Public License, version 3.
+
+Modifications
+-------------
+  Modified by Yansunsky, beginning July 2026 and continuing to the present.
+  Forked from the upstream branch dev/NeoForge-1.21.1 at commit e3ea859.
+
+  This version is released under the GNU Affero General Public License,
+  version 3, the same license as the upstream work. See LICENSE in this
+  directory for the full license text.
+
+  Corresponding source code:
+  https://github.com/yansunsky/Sweeper-Maid
+
+  Summary of changes (full details in the project README):
+    - Dustbin paging: the bottom row of the chest holds server-synthesized
+      paging buttons, so players without the mod can page too. 45 content
+      slots per page instead of 54; existing worlds are re-packed on load.
+    - Configurable per-slot stack capacity (DUSTBIN_SLOT_CAPACITY, default
+      1,000,000) replacing the vanilla limit of 64.
+    - Swept experience orbs are converted into retrievable items
+      (experience bottles, or Create experience nuggets when Create is
+      loaded) instead of being destroyed.
+    - Scheduled dustbin upkeep: clear, or pack to a gzipped NBT file that
+      can be imported again.
+    - Global re-sort of dustbin contents after each sweep.
+    - Experience orbs are now counted by the overload threshold.
+    - The dustbin is served over a vanilla chest menu, so unmodded clients
+      are no longer disconnected during the handshake.
+
+Third-party art
+---------------
+  The NeoForge fox mark placed in the lower-left corner of logo.png is part
+  of the official NeoForged branding art, created by Ridanisaurus.
+  Copyright the NeoForged team, licensed under the Creative Commons
+  Attribution 4.0 International license (CC BY 4.0).
+  https://github.com/neoforged/.github/tree/main/art
+  https://creativecommons.org/licenses/by/4.0/
+
+  It indicates that this mod runs on NeoForge. It does not imply any
+  endorsement by, or affiliation with, the NeoForged team.
